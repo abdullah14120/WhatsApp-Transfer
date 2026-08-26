@@ -3,15 +3,19 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.file.whatsapp">
 
-    <!-- التخزين والصلاحيات المتقدمة -->
+    <!-- Permissions: Storage & Scoped Storage Bypass -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission 
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
         tools:ignore="ScopedStorage" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- صلاحيات الاتصال الشبكي المحلي (Wi-Fi Hotspot & Sockets) بدون إنترنت -->
+    <!-- Permissions: Foreground Service & WakeLock for Background Persistence -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Permissions: Local Network Connectivity (Wi-Fi Sockets / Hotspot) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -26,7 +30,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.WhatsAppTransfer">
 
-        <!-- واجهة اختيار وسيط النقل (البداية) -->
+        <!-- UI Component: Mode Selection Entry Point -->
         <activity
             android:name=".ui.ModeSelectionActivity"
             android:exported="true">
@@ -36,10 +40,16 @@
             </intent-filter>
         </activity>
 
-        <!-- الواجهة الرئيسية للتنفيذ -->
+        <!-- UI Component: Execution Activity -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="false" />
+
+        <!-- Core Logic Component: Background Foreground Service -->
+        <service 
+            android:name=".core.TransferForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 
