@@ -1,14 +1,20 @@
-name: Build Debug APK
+name: Build WhatsApp Transfer APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
 
 jobs:
-  build:
+  build-and-release:
+    name: Native Build & Assembly
     runs-on: ubuntu-latest
 
     steps:
+      # ==========================================
+      # ⚙️ 1. Core Logic: Environment & Toolchains
+      # ==========================================
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -17,24 +23,23 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      # توليد ملفات الـ Wrapper من السيرفر لضمان استقرار البناء
-      - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.2
-
-      - name: Make Gradlew Executable
+      - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
-      # بناء نسخة الـ Debug (لا تحتاج لمفاتيح أو Secrets)
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      # ==========================================
+      # 🚀 2. Core Logic: Build Engine
+      # ==========================================
+      - name: Build Debug/Release APK
+        run: ./gradlew assembleDebug --build-cache --parallel --no-daemon
 
-      # رفع ملف الـ APK الناتج كـ Artifact
-      - name: Upload Debug APK
+      # ==========================================
+      # 📦 3. Presentation: Artifact Distribution
+      # ==========================================
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AB-Shield-Debug-Build
+          name: WhatsApp-Transfer-Build-${{ github.run_number }}
           path: app/build/outputs/apk/debug/*.apk
+          retention-days: 5
