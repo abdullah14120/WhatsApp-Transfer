@@ -9,6 +9,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 
 data class TransferProgress(
     val currentFileName: String,
@@ -35,7 +36,8 @@ class TransferEngine {
             destination.mkdirs()
         }
 
-        val buffer = ByteArray(65536) // 64KB Buffer
+        // 128KB Buffer لتعظيم كفاءة القراءة والكتابة على أقراص UFS
+        val buffer = ByteArray(131072)
 
         for (file in allFiles) {
             val relativePath = file.toRelativeString(source)
@@ -66,6 +68,12 @@ class TransferEngine {
                         }
                     }
                 }
+
+                // التحقق الفيزيائي من سلامة الملف المنقول عبر مطابقة الحجم بدقة
+                if (destFile.length() != file.length()) {
+                    throw IOException("Integrity check failed: Size mismatch for ${file.name}")
+                }
+
             } catch (e: Exception) {
                 emit(
                     TransferProgress(
@@ -76,6 +84,7 @@ class TransferEngine {
                         errorMessage = e.localizedMessage
                     )
                 )
+                return@flow
             }
         }
 
