@@ -20,9 +20,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.file.whatsapp.R
 import com.file.whatsapp.core.WhatsAppPathHelper
-import com.file.whatsapp.core.TransferEngine
+import com.file.whatsapp.core.TransferForegroundService
 import com.file.whatsapp.core.NetworkTransferEngine
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -36,7 +35,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtStatus: TextView
     private lateinit var txtPathInfo: TextView
 
-    private val transferEngine = TransferEngine()
     private val networkTransferEngine = NetworkTransferEngine()
     private val STORAGE_PERMISSION_CODE = 1001
 
@@ -63,11 +61,10 @@ class MainActivity : AppCompatActivity() {
         
         radioRegular.isChecked = true
         
-        // تعديل نص الزر بناءً على وضع النقل المحدد
         if (transferMode == "WIFI") {
             btnStartTransfer.text = "Start Wi-Fi Socket Transfer"
         } else {
-            btnStartTransfer.text = "Start Local USB Transfer"
+            btnStartTransfer.text = "Start Background Service Transfer"
         }
     }
 
@@ -138,29 +135,26 @@ class MainActivity : AppCompatActivity() {
         if (transferMode == "WIFI") {
             executeWifiTransfer(targetInfo.sourceDir)
         } else {
-            executeLocalTransfer(targetInfo.sourceDir, selectedType)
+            executeBackgroundServiceTransfer(targetInfo.sourceDir, selectedType)
         }
     }
 
-    private fun executeLocalTransfer(sourceDir: File, selectedType: WhatsAppPathHelper.WhatsAppType) {
+    private fun executeBackgroundServiceTransfer(sourceDir: File, selectedType: WhatsAppPathHelper.WhatsAppType) {
         val destinationDir = File(getExternalFilesDir(null), "TransferOutput_${selectedType.folderName}")
 
-        btnStartTransfer.isEnabled = false
-        progressBar.progress = 0
-
-        lifecycleScope.launch {
-            transferEngine.transferFolder(sourceDir, destinationDir).collectLatest { progress ->
-                progressBar.progress = progress.percentage
-                if (progress.isCompleted) {
-                    btnStartTransfer.isEnabled = true
-                    txtStatus.text = "Transfer Completed Successfully to: ${destinationDir.absolutePath}"
-                } else if (progress.errorMessage != null) {
-                    txtStatus.text = "Error in ${progress.currentFileName}: ${progress.errorMessage}"
-                } else {
-                    txtStatus.text = "Copying: ${progress.currentFileName} (${progress.percentage}%)"
-                }
-            }
+        val serviceIntent = Intent(this, TransferForegroundService::class.java).apply {
+            putExtra(TransferForegroundService.EXTRA_SOURCE_PATH, sourceDir.absolutePath)
+            putExtra(TransferForegroundService.EXTRA_DEST_PATH, destinationDir.absolutePath)
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+
+        txtStatus.text = "Transfer running in background service. Check notifications."
+        Toast.makeText(this, "بدء عملية النقل في الخلفية بنجاح.", Toast.LENGTH_SHORT).show()
     }
 
     private fun executeWifiTransfer(sourceDir: File) {
@@ -170,8 +164,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                // مثال افتراضي: تشغيل المستقبل أو الاتصال (يتم تخصيص IP حسب دور الجهاز مرسل/مستقبل)
-                val targetIp = "192.168.4.1" // مثال لعنوان نقطة الاتصال
+                val targetIp = "192.168.4.1"
                 
                 networkTransferEngine.connectAndSend(targetIp, sourceDir) { fileName, percent ->
                     runOnUiThread {
