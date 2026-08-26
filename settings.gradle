@@ -14,5 +14,5 @@ dependencyResolutionManagement {
 }
 
 // إزالة المسافة البيضاء لتجنب فشل CLI Task Parsing
-rootProject.name = "WhatsApp-Transfer"
+rootProject.name = "WhatsAppTransfer"
 include ':app'
