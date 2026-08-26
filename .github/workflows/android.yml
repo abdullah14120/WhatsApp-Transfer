@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ==========================================
+      # ⚙️ 1. Core Logic: Environment & Toolchains
+      # ==========================================
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -22,12 +25,21 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.2
+
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
 
+      # ==========================================
+      # 🚀 2. Core Logic: Build Engine
+      # ==========================================
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug --build-cache --parallel --no-daemon
 
+      # ==========================================
+      # 📦 3. UI / Presentation: Artifact Distribution
+      # ==========================================
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
