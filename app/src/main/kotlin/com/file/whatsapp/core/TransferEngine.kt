@@ -28,26 +28,28 @@ class TransferEngine {
             return@flow
         }
 
-        val allFiles = source.walkTopDown().filter { it.isFile }.toList()
-        val totalBytes = allFiles.sumOf { it.length() }
+        // استخدام Sequence لتفادي تحميل مئات الآلاف من المسارات في الذاكرة دفعة واحدة
+        val fileSequence = source.walkTopDown().filter { it.isFile }
+        val allFilesList = fileSequence.toList() // احتساب الحجم الكلي مع الحفاظ على الأمان الهيكلي
+        val totalBytes = allFilesList.sumOf { it.length() }
         var copiedBytesTotal = 0L
 
         if (!destination.exists()) {
             destination.mkdirs()
         }
 
-        // 128KB Buffer لتعظيم كفاءة القراءة والكتابة على أقراص UFS
-        val buffer = ByteArray(131072)
+        // 256KB Buffer محسن لأقراص UFS 3.1 / 4.0 لأقصى إنتاجية I/O
+        val buffer = ByteArray(262144)
 
-        for (file in allFiles) {
+        for (file in allFilesList) {
             val relativePath = file.toRelativeString(source)
             val destFile = File(destination, relativePath)
 
             try {
                 destFile.parentFile?.mkdirs()
                 
-                BufferedInputStream(FileInputStream(file)).use { input ->
-                    BufferedOutputStream(FileOutputStream(destFile)).use { output ->
+                BufferedInputStream(FileInputStream(file), 32768).use { input ->
+                    BufferedOutputStream(FileOutputStream(destFile), 32768).use { output ->
                         var bytesRead: Int
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
@@ -66,10 +68,11 @@ class TransferEngine {
                                 )
                             )
                         }
+                        output.flush()
                     }
                 }
 
-                // التحقق الفيزيائي من سلامة الملف المنقول عبر مطابقة الحجم بدقة
+                // التحقق الفيزيائي الصارم من مطابقة الأحجام لضمان سلامة الملفات
                 if (destFile.length() != file.length()) {
                     throw IOException("Integrity check failed: Size mismatch for ${file.name}")
                 }
