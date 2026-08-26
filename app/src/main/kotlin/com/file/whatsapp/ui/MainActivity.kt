@@ -1,4 +1,3 @@
-
 package com.file.whatsapp.ui
 
 import android.Manifest
@@ -22,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.file.whatsapp.R
 import com.file.whatsapp.core.WhatsAppPathHelper
 import com.file.whatsapp.core.TransferEngine
+import com.file.whatsapp.core.NetworkTransferEngine
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -37,11 +37,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var txtPathInfo: TextView
 
     private val transferEngine = TransferEngine()
+    private val networkTransferEngine = NetworkTransferEngine()
     private val STORAGE_PERMISSION_CODE = 1001
+
+    private var transferMode: String = "USB"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        transferMode = intent.getStringExtra("TRANSFER_MODE") ?: "USB"
 
         initViews()
         setupListeners()
@@ -57,6 +62,13 @@ class MainActivity : AppCompatActivity() {
         txtPathInfo = findViewById(R.id.txtPathInfo)
         
         radioRegular.isChecked = true
+        
+        // تعديل نص الزر بناءً على وضع النقل المحدد
+        if (transferMode == "WIFI") {
+            btnStartTransfer.text = "Start Wi-Fi Socket Transfer"
+        } else {
+            btnStartTransfer.text = "Start Local USB Transfer"
+        }
     }
 
     private fun setupListeners() {
@@ -66,7 +78,7 @@ class MainActivity : AppCompatActivity() {
 
         btnStartTransfer.setOnClickListener {
             if (checkStoragePermissions()) {
-                executeTransfer()
+                executeTransferRouting()
             } else {
                 Toast.makeText(this, "Permissions are required first.", Toast.LENGTH_SHORT).show()
                 requestStoragePermissions()
@@ -112,7 +124,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun executeTransfer() {
+    private fun executeTransferRouting() {
         val selectedType = getSelectedWhatsAppType()
         val targetInfo = WhatsAppPathHelper.resolveStoragePath(selectedType)
 
@@ -123,14 +135,21 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // مسار الوجهة الخارجي المؤقت (مثال: مجلد التخزين العام للنقل)
+        if (transferMode == "WIFI") {
+            executeWifiTransfer(targetInfo.sourceDir)
+        } else {
+            executeLocalTransfer(targetInfo.sourceDir, selectedType)
+        }
+    }
+
+    private fun executeLocalTransfer(sourceDir: File, selectedType: WhatsAppPathHelper.WhatsAppType) {
         val destinationDir = File(getExternalFilesDir(null), "TransferOutput_${selectedType.folderName}")
 
         btnStartTransfer.isEnabled = false
         progressBar.progress = 0
 
         lifecycleScope.launch {
-            transferEngine.transferFolder(targetInfo.sourceDir, destinationDir).collectLatest { progress ->
+            transferEngine.transferFolder(sourceDir, destinationDir).collectLatest { progress ->
                 progressBar.progress = progress.percentage
                 if (progress.isCompleted) {
                     btnStartTransfer.isEnabled = true
@@ -140,6 +159,32 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     txtStatus.text = "Copying: ${progress.currentFileName} (${progress.percentage}%)"
                 }
+            }
+        }
+    }
+
+    private fun executeWifiTransfer(sourceDir: File) {
+        btnStartTransfer.isEnabled = false
+        progressBar.progress = 0
+        txtStatus.text = "Initializing Socket Server / Client..."
+
+        lifecycleScope.launch {
+            try {
+                // مثال افتراضي: تشغيل المستقبل أو الاتصال (يتم تخصيص IP حسب دور الجهاز مرسل/مستقبل)
+                val targetIp = "192.168.4.1" // مثال لعنوان نقطة الاتصال
+                
+                networkTransferEngine.connectAndSend(targetIp, sourceDir) { fileName, percent ->
+                    runOnUiThread {
+                        progressBar.progress = percent
+                        txtStatus.text = "Sending over Wi-Fi: $fileName ($percent%)"
+                    }
+                }
+
+                btnStartTransfer.isEnabled = true
+                txtStatus.text = "Wi-Fi Transfer Completed Successfully."
+            } catch (e: Exception) {
+                btnStartTransfer.isEnabled = true
+                txtStatus.text = "Wi-Fi Transfer Error: ${e.localizedMessage}"
             }
         }
     }
