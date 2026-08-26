@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="اختر طريقة النقل بدون إنترنت"
+        android:text="اختر وسيط النقل (بدون إنترنت)"
         android:textSize="18sp"
         android:textStyle="bold"
         android:layout_marginBottom="32dp" />
@@ -18,13 +18,13 @@
         android:id="@+id/btnUsbMode"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="النقل المباشر (عبر الكيبل / التخزين الداخلي)"
+        android:text="النقل المحلي المباشر (USB / Internal)"
         android:layout_marginBottom="16dp" />
 
     <Button
         android:id="@+id/btnWifiMode"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="النقل اللاسلكي (نقطة اتصال Wi-Fi Hotspot)" />
+        android:text="النقل اللاسلكي المحلي (Wi-Fi Sockets)" />
 
 </LinearLayout>
