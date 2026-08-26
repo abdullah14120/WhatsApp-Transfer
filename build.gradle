@@ -1,0 +1,30 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // إضافة دعم لـ Navigation Safe Args إذا قررت استخدامه مستقبلاً
+        // classpath "androidx.navigation:navigation-safe-args-gradle-plugin:2.7.7"
+    }
+}
+
+plugins {
+    // إصدار Android Gradle Plugin المستقر والمتوافق مع Gradle 8.2+
+    id 'com.android.application' version '8.2.0' apply false
+    id 'com.android.library' version '8.2.0' apply false
+    
+    // استخدام إصدار Kotlin 2.1.0 لضمان أداء أسرع وتوافق مع أندرويد 15
+    id 'org.jetbrains.kotlin.android' version '2.1.0' apply false
+    
+    // إضافة KAPT لتمكين مكتبات Room و Glide من توليد الكود برمجياً
+    id 'org.jetbrains.kotlin.kapt' version '2.1.0' apply false
+    
+    // ⬇️ السطر السحري الجديد: إضافة بلجن خدمات جوجل للفايربيس هنا مع جعل apply false 
+    id 'com.google.gms.google-services' version '4.4.2' apply false
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.buildDir
+}
