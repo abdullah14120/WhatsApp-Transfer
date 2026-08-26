@@ -10,15 +10,13 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.file.whatsapp.R
 import kotlinx.coroutines.*
 import java.io.File
-import java.security.MessageDigest
 
 class TransferForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private lateinit.let var wakeLock: PowerManager.WakeLock
+    private lateinit var wakeLock: PowerManager.WakeLock
     private val transferEngine = TransferEngine()
 
     companion object {
@@ -32,7 +30,7 @@ class TransferForegroundService : Service() {
         super.onCreate()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WhatsAppTransfer::Wakelock")
-        wakeLock.acquire(4 * 60 * 60 * 1000L) // حماية لمدة أقصاها 4 ساعات
+        wakeLock.acquire(4 * 60 * 60 * 1000L)
         createNotificationChannel()
     }
 
@@ -47,7 +45,11 @@ class TransferForegroundService : Service() {
 
         serviceScope.launch {
             try {
-                transferEngine.transferFolderWithVerification(sourceFile, destFile) { progress ->
+                // استهلاك تدفق نقل الملفات وتحديث الإشعار لحظياً
+                transferEngine.transferFolder(sourceFile, destFile).collect { progress ->
+                    if (!progress.errorMessage.isNullOrEmpty()) {
+                        throw Exception(progress.errorMessage)
+                    }
                     val notification = createNotification("جاري نقل: ${progress.currentFileName} (${progress.percentage}%)", progress.percentage)
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     notificationManager.notify(NOTIFICATION_ID, notification)
@@ -61,7 +63,7 @@ class TransferForegroundService : Service() {
             }
         }
 
-        return START_STICKY // ضمان إعادة التشغيل لو قتل النظام الخدمة قسرياً
+        return START_REDELIVER_INTENT
     }
 
     private fun createNotificationChannel() {
@@ -98,7 +100,9 @@ class TransferForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (wakeLock.isHeld) wakeLock.release()
+        if (::wakeLock.isInitialized && wakeLock.isHeld) {
+            wakeLock.release()
+        }
         serviceScope.cancel()
     }
 
