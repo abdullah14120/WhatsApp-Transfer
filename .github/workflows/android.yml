@@ -22,14 +22,11 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      # ⚙️ التوليد التلقائي لملفات Gradle Wrapper مسبقاً لمنع خطأ غياب jarfile
-      - name: Setup Gradle Wrapper Automatically
-        run: |
-          gradle wrapper --gradle-version 8.4
-          chmod +x gradlew
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --build-cache --parallel --no-daemon
+        run: ./gradlew :app:assembleDebug --build-cache --parallel --no-daemon
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
