@@ -30,9 +30,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.WhatsAppTransfer">
 
-        <!-- UI Component: Mode Selection Entry Point -->
+        <!-- UI Component: Role & Session Selection Entry Point -->
         <activity
-            android:name=".ui.ModeSelectionActivity"
+            android:name=".ui.RoleSelectionActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
