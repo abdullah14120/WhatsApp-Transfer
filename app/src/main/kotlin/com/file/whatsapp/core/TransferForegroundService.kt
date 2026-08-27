@@ -17,92 +17,81 @@ class TransferForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var wakeLock: PowerManager.WakeLock
-    private val transferEngine = TransferEngine()
+    private val networkEngine = NetworkTransferEngine()
 
     companion object {
-        const val CHANNEL_ID = "WhatsAppTransferChannel"
-        const val NOTIFICATION_ID = 1337
+        const val CHANNEL_ID = "HighSpeedTransferChannel"
+        const val NOTIFICATION_ID = 7777
+        const val EXTRA_MODE = "EXTRA_MODE"
+        const val EXTRA_IP = "EXTRA_IP"
         const val EXTRA_SOURCE_PATH = "EXTRA_SOURCE_PATH"
-        const val EXTRA_DEST_PATH = "EXTRA_DEST_PATH"
     }
 
     override fun onCreate() {
         super.onCreate()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WhatsAppTransfer::Wakelock")
-        wakeLock.acquire(4 * 60 * 60 * 1000L)
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WhatsAppTransfer::MaxPerformanceWakeLock")
+        wakeLock.acquire(8 * 60 * 60 * 1000L) // 8 ساعات حماية قصوى
         createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val sourcePath = intent?.getStringExtra(EXTRA_SOURCE_PATH) ?: return START_NOT_STICKY
-        val destPath = intent?.getStringExtra(EXTRA_DEST_PATH) ?: return START_NOT_STICKY
+        val mode = intent?.getStringExtra(EXTRA_MODE) ?: "SENDER"
+        val ip = intent?.getStringExtra(EXTRA_IP) ?: "192.168.4.1"
+        val sourcePath = intent?.getStringExtra(EXTRA_SOURCE_PATH)
 
-        val sourceFile = File(sourcePath)
-        val destFile = File(destPath)
-
-        startForeground(NOTIFICATION_ID, createNotification("جاري تجهيز نقل الملفات...", 0))
+        startForeground(NOTIFICATION_ID, createNotification("جاري نقل بيانات واتساب بأقصى سرعة...", 0))
 
         serviceScope.launch {
             try {
-                // استهلاك تدفق نقل الملفات وتحديث الإشعار لحظياً
-                transferEngine.transferFolder(sourceFile, destFile).collect { progress ->
-                    if (!progress.errorMessage.isNullOrEmpty()) {
-                        throw Exception(progress.errorMessage)
+                val destinationDir = File(getExternalFilesDir(null), "WhatsAppTransfer_HighSpeed")
+                if (mode == "RECEIVER") {
+                    networkEngine.startServerAndReceive(destinationDir) { name, percent ->
+                        updateNotification("استقبال: $name ($percent%)", percent)
                     }
-                    val notification = createNotification("جاري نقل: ${progress.currentFileName} (${progress.percentage}%)", progress.percentage)
-                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    notificationManager.notify(NOTIFICATION_ID, notification)
+                } else if (sourcePath != null) {
+                    val sourceFile = File(sourcePath)
+                    networkEngine.connectAndSend(ip, sourceFile) { name, percent ->
+                        updateNotification("إرسال: $name ($percent%)", percent)
+                    }
                 }
-                updateNotificationCompletion("تم النقل بنجاح وبدون تلف ملفات!")
+                updateNotification("اكتمل النقل بنجاح تام وبأقصى سرعة!", 100)
             } catch (e: Exception) {
-                updateNotificationCompletion("فشل النقل: ${e.localizedMessage}")
+                updateNotification("خطأ في النقل: ${e.localizedMessage}", 0)
             } finally {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
 
-        return START_REDELIVER_INTENT
+        return START_STICKY
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "WhatsApp Transfer Service", NotificationManager.IMPORTANCE_LOW)
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+            val channel = NotificationChannel(CHANNEL_ID, "High Speed Transfer", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(content: String, progress: Int): Notification {
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("نقل بيانات واتساب في الخلفية")
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("منظومة النقل فائق السرعة")
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setProgress(100, progress, false)
             .setOngoing(true)
-            
-        if (progress in 0..100) {
-            builder.setProgress(100, progress, false)
-        }
-        return builder.build()
+            .build()
     }
 
-    private fun updateNotificationCompletion(message: String) {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("اكتملت العملية")
-            .setContentText(message)
-            .setSmallIcon(android.R.drawable.stat_sys_upload_done)
-            .setOngoing(false)
-            .build()
+    private fun updateNotification(content: String, progress: Int) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(NOTIFICATION_ID, createNotification(content, progress))
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::wakeLock.isInitialized && wakeLock.isHeld) {
-            wakeLock.release()
-        }
+        if (::wakeLock.isInitialized && wakeLock.isHeld) wakeLock.release()
         serviceScope.cancel()
     }
 
