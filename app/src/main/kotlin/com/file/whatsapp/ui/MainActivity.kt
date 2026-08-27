@@ -1,9 +1,6 @@
 package com.file.whatsapp.ui
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -15,13 +12,14 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.core.app.ActivityCompat
 import com.file.whatsapp.R
 import com.file.whatsapp.core.WhatsAppPathHelper
 import com.file.whatsapp.core.TransferForegroundService
-import com.file.whatsapp.core.ConnectionManager
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,7 +33,6 @@ class MainActivity : AppCompatActivity() {
 
     private val STORAGE_PERMISSION_CODE = 1001
 
-    private var transferMode: String = "USB"
     private var transferRole: String = "SENDER"
     private var targetIp: String = ""
 
@@ -43,7 +40,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        transferMode = intent.getStringExtra("TRANSFER_MODE") ?: "USB"
         transferRole = intent.getStringExtra("TRANSFER_ROLE") ?: "SENDER"
         targetIp = intent.getStringExtra("TARGET_IP") ?: ""
 
@@ -62,11 +58,7 @@ class MainActivity : AppCompatActivity() {
         
         radioRegular.isChecked = true
         
-        btnStartTransfer.text = if (transferMode == "WIFI") {
-            if (transferRole == "SENDER") "تشغيل الإرسال فائق السرعة" else "تشغيل خادم الاستقبال السريع"
-        } else {
-            "Verify USB & Start Background Transfer"
-        }
+        btnStartTransfer.text = if (transferRole == "SENDER") "بدء الإرسال فائق السرعة" else "تشغيل خادم الاستقبال السريع"
     }
 
     private fun setupListeners() {
@@ -133,9 +125,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        btnStartTransfer.isEnabled = false
-        txtStatus.text = "Initializing High-Performance Background Engine..."
-
         val ipToUse = if (targetIp.isNotEmpty()) targetIp else "192.168.4.1"
 
         val serviceIntent = Intent(this, TransferForegroundService::class.java).apply {
@@ -150,7 +139,7 @@ class MainActivity : AppCompatActivity() {
             startService(serviceIntent)
         }
 
-        txtStatus.text = "النقل يعمل الآن بأقصى سرعة في الخلفية مع منع النوم والاستئناف التلقائي."
-        Toast.makeText(this, "بدء عملية النقل الفائق في الخلفية.", Toast.LENGTH_SHORT).show()
+        txtStatus.text = "الخدمة تعمل في الخلفية. راقب شريط الإشعارات لمعرفة حالة الاتصال الحقيقية."
+        Toast.makeText(this, "تم بدء خدمة النقل الخلفية.", Toast.LENGTH_SHORT).show()
     }
 }
