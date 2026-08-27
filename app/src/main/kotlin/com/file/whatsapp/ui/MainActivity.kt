@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
         radioRegular.isChecked = true
         
         btnStartTransfer.text = if (transferMode == "WIFI") {
-            "Verify & Start Wi-Fi Socket ($transferRole)"
+            if (transferRole == "SENDER") "Start Wi-Fi Sender" else "Start Wi-Fi Receiver Server"
         } else {
             "Verify USB & Start Background Transfer"
         }
@@ -146,23 +146,23 @@ class MainActivity : AppCompatActivity() {
             } else {
                 if (transferRole == "SENDER") {
                     val ipToTest = if (targetIp.isNotEmpty()) targetIp else "192.168.4.1"
-                    ConnectionManager.testSocketConnection(ipToTest)
+                    ConnectionManager.testSocketConnection(ipToTest, NetworkTransferEngine.PORT)
                 } else {
-                    true // Receiver binds socket server natively
+                    true 
                 }
             }
 
-            if (!isLinkHealthy) {
+            if (!isLinkHealthy && transferMode == "USB") {
                 btnStartTransfer.isEnabled = true
-                txtStatus.text = "Connection Verification Failed. Link is down."
-                Toast.makeText(this@MainActivity, "فشل التحقق من قناة الاتصال بين الجهازين.", Toast.LENGTH_LONG).show()
+                txtStatus.text = "USB Connection Verification Failed."
+                Toast.makeText(this@MainActivity, "فشل التحقق من اتصال الـ USB.", Toast.LENGTH_LONG).show()
                 return@launch
             }
 
             txtStatus.text = "Link Verified Successfully. Executing Transfer..."
 
             if (transferMode == "WIFI") {
-                executeWifiTransfer(targetInfo.sourceDir)
+                executeWifiTransfer(targetInfo.sourceDir, destinationDir = File(getExternalFilesDir(null), "TransferOutput_${selectedType.folderName}"))
             } else {
                 executeBackgroundServiceTransfer(targetInfo.sourceDir, selectedType)
             }
@@ -188,25 +188,35 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "بدء عملية النقل في الخلفية بنجاح.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun executeWifiTransfer(sourceDir: File) {
+    private fun executeWifiTransfer(sourceDir: File, destinationDir: File) {
         progressBar.progress = 0
 
         lifecycleScope.launch {
             try {
-                val ipToUse = if (targetIp.isNotEmpty()) targetIp else "192.168.4.1"
-                
-                networkTransferEngine.connectAndSend(ipToUse, sourceDir) { fileName, percent ->
-                    runOnUiThread {
-                        progressBar.progress = percent
-                        txtStatus.text = "Wi-Fi Streaming: $fileName ($percent%)"
+                if (transferRole == "RECEIVER") {
+                    txtStatus.text = "Server listening on port ${NetworkTransferEngine.PORT}..."
+                    networkTransferEngine.startServerAndReceive(destinationDir) { message ->
+                        runOnUiThread {
+                            txtStatus.text = message
+                        }
                     }
+                    txtStatus.text = "Wi-Fi Receiver Completed Successfully."
+                } else {
+                    val ipToUse = if (targetIp.isNotEmpty()) targetIp else "192.168.4.1"
+                    txtStatus.text = "Connecting to $ipToUse..."
+                    
+                    networkTransferEngine.connectAndSend(ipToUse, sourceDir) { fileName, percent ->
+                        runOnUiThread {
+                            progressBar.progress = percent
+                            txtStatus.text = "Wi-Fi Streaming: $fileName ($percent%)"
+                        }
+                    }
+                    txtStatus.text = "Wi-Fi Sender Completed Successfully."
                 }
-
-                btnStartTransfer.isEnabled = true
-                txtStatus.text = "Wi-Fi Socket Transfer Completed Successfully."
             } catch (e: Exception) {
-                btnStartTransfer.isEnabled = true
                 txtStatus.text = "Wi-Fi Transfer Error: ${e.localizedMessage}"
+            } finally {
+                btnStartTransfer.isEnabled = true
             }
         }
     }
