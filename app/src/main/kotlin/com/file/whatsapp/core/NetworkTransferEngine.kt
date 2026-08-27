@@ -7,15 +7,17 @@ import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.ServerSocket
 import java.net.Socket
+import java.nio.ByteBuffer
 
 class NetworkTransferEngine {
 
     companion object {
         const val PORT = 8888
-        private const val BUFFER_SIZE = 1048576 // 1MB Buffer لأقصى سرعة نقل فيزيائية ممكنة
+        private const val BUFFER_SIZE = 1048576 // 1MB Buffer
     }
 
     suspend fun startServerAndReceive(outputDir: File, onProgress: (String, Int) -> Unit) = withContext(Dispatchers.IO) {
@@ -33,9 +35,8 @@ class NetworkTransferEngine {
                         val targetFile = File(outputDir, relativePath)
                         targetFile.parentFile?.mkdirs()
 
-                        // دعم الاستئناف الفوري في حال وجود جزء سابق لنفس الملف
                         val existingLen = if (targetFile.exists()) targetFile.length() else 0L
-                        
+
                         RandomAccessFile(targetFile, "rw").use { raf ->
                             raf.seek(existingLen)
                             clientSocket.getOutputStream().write(byteArrayOf(if (existingLen > 0) 1 else 0))
@@ -50,7 +51,7 @@ class NetworkTransferEngine {
                                     bos.write(buffer, 0, read)
                                     remaining -= read
                                     receivedBytesTotal += read
-                                    
+
                                     val percent = if (totalSessionBytes > 0) ((receivedBytesTotal * 100) / totalSessionBytes).toInt() else 100
                                     onProgress(relativePath, percent)
                                 }
@@ -81,7 +82,6 @@ class NetworkTransferEngine {
                     dos.writeLong(file.length())
                     dos.flush()
 
-                    // قراءة إشارة الاستئناف من الخادم
                     val resumeSignal = socket.getInputStream().read()
                     val startOffset = if (resumeSignal == 1 && file.exists()) file.length() else 0L
                     sentBytesTotal += startOffset
@@ -89,12 +89,9 @@ class NetworkTransferEngine {
                     RandomAccessFile(file, "r").use { raf ->
                         raf.seek(startOffset)
                         BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE).use { bos ->
-                            val buffer = ByteArray(BUFFER_SIZE)
-                            var bytesRead: Int
                             val channel = raf.channel
-                            // استخدام الذاكرة المباشرة والتحويل السريع
-                            val byteBuffer = java.nio.ByteBuffer.allocateDirect(BUFFER_SIZE)
-                            
+                            val byteBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE)
+
                             while (true) {
                                 byteBuffer.clear()
                                 val read = channel.read(byteBuffer)
@@ -102,7 +99,7 @@ class NetworkTransferEngine {
                                 byteBuffer.flip()
                                 val array = ByteArray(read)
                                 byteBuffer.get(array)
-                                
+
                                 bos.write(array, 0, read)
                                 sentBytesTotal += read
 
