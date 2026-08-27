@@ -31,7 +31,7 @@ class TransferForegroundService : Service() {
         super.onCreate()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WhatsAppTransfer::MaxPerformanceWakeLock")
-        wakeLock.acquire(8 * 60 * 60 * 1000L) // 8 ساعات حماية قصوى
+        wakeLock.acquire(8 * 60 * 60 * 1000L)
         createNotificationChannel()
     }
 
@@ -40,31 +40,35 @@ class TransferForegroundService : Service() {
         val ip = intent?.getStringExtra(EXTRA_IP) ?: "192.168.4.1"
         val sourcePath = intent?.getStringExtra(EXTRA_SOURCE_PATH)
 
-        startForeground(NOTIFICATION_ID, createNotification("جاري نقل بيانات واتساب بأقصى سرعة...", 0))
+        startForeground(NOTIFICATION_ID, createNotification("جاري تهيئة قناة الاتصال والربط...", 0))
 
         serviceScope.launch {
             try {
                 val destinationDir = File(getExternalFilesDir(null), "WhatsAppTransfer_HighSpeed")
                 if (mode == "RECEIVER") {
+                    updateNotification("في انتظار اتصال المرسل على البورت ${NetworkTransferEngine.PORT}...", 0)
                     networkEngine.startServerAndReceive(destinationDir) { name, percent ->
                         updateNotification("استقبال: $name ($percent%)", percent)
                     }
                 } else if (sourcePath != null) {
                     val sourceFile = File(sourcePath)
+                    updateNotification("جاري الاتصال بالمستقبل عبر ($ip)...", 0)
                     networkEngine.connectAndSend(ip, sourceFile) { name, percent ->
                         updateNotification("إرسال: $name ($percent%)", percent)
                     }
                 }
                 updateNotification("اكتمل النقل بنجاح تام وبأقصى سرعة!", 100)
+                delay(3000)
             } catch (e: Exception) {
-                updateNotification("خطأ في النقل: ${e.localizedMessage}", 0)
+                updateNotification("فشل الاتصال أو النقل: ${e.localizedMessage}", 0)
+                delay(6000)
             } finally {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -79,7 +83,7 @@ class TransferForegroundService : Service() {
             .setContentTitle("منظومة النقل فائق السرعة")
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setProgress(100, progress, false)
+            .setProgress(100, progress, progress > 0)
             .setOngoing(true)
             .build()
     }
