@@ -28,9 +28,8 @@ class TransferEngine {
             return@flow
         }
 
-        // استخدام Sequence لتفادي تحميل مئات الآلاف من المسارات في الذاكرة دفعة واحدة
         val fileSequence = source.walkTopDown().filter { it.isFile }
-        val allFilesList = fileSequence.toList() // احتساب الحجم الكلي مع الحفاظ على الأمان الهيكلي
+        val allFilesList = fileSequence.toList()
         val totalBytes = allFilesList.sumOf { it.length() }
         var copiedBytesTotal = 0L
 
@@ -38,8 +37,7 @@ class TransferEngine {
             destination.mkdirs()
         }
 
-        // 256KB Buffer محسن لأقراص UFS 3.1 / 4.0 لأقصى إنتاجية I/O
-        val buffer = ByteArray(262144)
+        val buffer = ByteArray(262144) // 256KB I/O Buffer
 
         for (file in allFilesList) {
             val relativePath = file.toRelativeString(source)
@@ -72,7 +70,6 @@ class TransferEngine {
                     }
                 }
 
-                // التحقق الفيزيائي الصارم من مطابقة الأحجام لضمان سلامة الملفات
                 if (destFile.length() != file.length()) {
                     throw IOException("Integrity check failed: Size mismatch for ${file.name}")
                 }
