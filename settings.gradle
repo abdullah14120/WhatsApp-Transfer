@@ -5,15 +5,22 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
+    // فرض مركزية المستودعات (Strict Centralization) ومنع الموديولات من تجاوزها
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    
     repositories {
         google()
         mavenCentral()
+        
+        // ضروري لجلب المكتبات المستضافة على GitHub (مثل مكتبة Fetch)
+        maven { 
+            url 'https://jitpack.io' 
+        }
     }
 }
 
-// إزالة المسافة البيضاء لتجنب فشل CLI Task Parsing
 rootProject.name = "WhatsAppTransfer"
-include ':app'
 
+include ':app'
