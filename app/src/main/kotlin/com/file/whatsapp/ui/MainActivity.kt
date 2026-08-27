@@ -22,6 +22,7 @@ import com.file.whatsapp.R
 import com.file.whatsapp.core.WhatsAppPathHelper
 import com.file.whatsapp.core.TransferForegroundService
 import com.file.whatsapp.core.NetworkTransferEngine
+import com.file.whatsapp.core.ConnectionManager
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -39,12 +40,16 @@ class MainActivity : AppCompatActivity() {
     private val STORAGE_PERMISSION_CODE = 1001
 
     private var transferMode: String = "USB"
+    private var transferRole: String = "SENDER"
+    private var targetIp: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         transferMode = intent.getStringExtra("TRANSFER_MODE") ?: "USB"
+        transferRole = intent.getStringExtra("TRANSFER_ROLE") ?: "SENDER"
+        targetIp = intent.getStringExtra("TARGET_IP") ?: ""
 
         initViews()
         setupListeners()
@@ -61,10 +66,10 @@ class MainActivity : AppCompatActivity() {
         
         radioRegular.isChecked = true
         
-        if (transferMode == "WIFI") {
-            btnStartTransfer.text = "Start Wi-Fi Socket Transfer"
+        btnStartTransfer.text = if (transferMode == "WIFI") {
+            "Verify & Start Wi-Fi Socket ($transferRole)"
         } else {
-            btnStartTransfer.text = "Start Background Service Transfer"
+            "Verify USB & Start Background Transfer"
         }
     }
 
@@ -75,7 +80,7 @@ class MainActivity : AppCompatActivity() {
 
         btnStartTransfer.setOnClickListener {
             if (checkStoragePermissions()) {
-                executeTransferRouting()
+                verifyConnectionAndExecuteRouting()
             } else {
                 Toast.makeText(this, "Permissions are required first.", Toast.LENGTH_SHORT).show()
                 requestStoragePermissions()
@@ -121,7 +126,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun executeTransferRouting() {
+    private fun verifyConnectionAndExecuteRouting() {
         val selectedType = getSelectedWhatsAppType()
         val targetInfo = WhatsAppPathHelper.resolveStoragePath(selectedType)
 
@@ -132,10 +137,35 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (transferMode == "WIFI") {
-            executeWifiTransfer(targetInfo.sourceDir)
-        } else {
-            executeBackgroundServiceTransfer(targetInfo.sourceDir, selectedType)
+        btnStartTransfer.isEnabled = false
+        txtStatus.text = "Verifying physical/network link between devices..."
+
+        lifecycleScope.launch {
+            val isLinkHealthy = if (transferMode == "USB") {
+                ConnectionManager.verifyUsbConnection(this@MainActivity)
+            } else {
+                if (transferRole == "SENDER") {
+                    val ipToTest = if (targetIp.isNotEmpty()) targetIp else "192.168.4.1"
+                    ConnectionManager.testSocketConnection(ipToTest)
+                } else {
+                    true // Receiver binds socket server natively
+                }
+            }
+
+            if (!isLinkHealthy) {
+                btnStartTransfer.isEnabled = true
+                txtStatus.text = "Connection Verification Failed. Link is down."
+                Toast.makeText(this@MainActivity, "فشل التحقق من قناة الاتصال بين الجهازين.", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            txtStatus.text = "Link Verified Successfully. Executing Transfer..."
+
+            if (transferMode == "WIFI") {
+                executeWifiTransfer(targetInfo.sourceDir)
+            } else {
+                executeBackgroundServiceTransfer(targetInfo.sourceDir, selectedType)
+            }
         }
     }
 
@@ -153,28 +183,27 @@ class MainActivity : AppCompatActivity() {
             startService(serviceIntent)
         }
 
+        btnStartTransfer.isEnabled = true
         txtStatus.text = "Transfer running in background service. Check notifications."
         Toast.makeText(this, "بدء عملية النقل في الخلفية بنجاح.", Toast.LENGTH_SHORT).show()
     }
 
     private fun executeWifiTransfer(sourceDir: File) {
-        btnStartTransfer.isEnabled = false
         progressBar.progress = 0
-        txtStatus.text = "Initializing Socket Server / Client..."
 
         lifecycleScope.launch {
             try {
-                val targetIp = "192.168.4.1"
+                val ipToUse = if (targetIp.isNotEmpty()) targetIp else "192.168.4.1"
                 
-                networkTransferEngine.connectAndSend(targetIp, sourceDir) { fileName, percent ->
+                networkTransferEngine.connectAndSend(ipToUse, sourceDir) { fileName, percent ->
                     runOnUiThread {
                         progressBar.progress = percent
-                        txtStatus.text = "Sending over Wi-Fi: $fileName ($percent%)"
+                        txtStatus.text = "Wi-Fi Streaming: $fileName ($percent%)"
                     }
                 }
 
                 btnStartTransfer.isEnabled = true
-                txtStatus.text = "Wi-Fi Transfer Completed Successfully."
+                txtStatus.text = "Wi-Fi Socket Transfer Completed Successfully."
             } catch (e: Exception) {
                 btnStartTransfer.isEnabled = true
                 txtStatus.text = "Wi-Fi Transfer Error: ${e.localizedMessage}"
