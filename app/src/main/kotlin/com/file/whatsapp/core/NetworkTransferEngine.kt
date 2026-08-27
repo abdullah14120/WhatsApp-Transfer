@@ -2,13 +2,7 @@ package com.file.whatsapp.core
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.io.DataInputStream
-import java.io.DataOutputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.io.RandomAccessFile
+import java.io.*
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.ByteBuffer
@@ -22,6 +16,7 @@ class NetworkTransferEngine {
 
     suspend fun startServerAndReceive(outputDir: File, onProgress: (String, Int) -> Unit) = withContext(Dispatchers.IO) {
         ServerSocket(PORT).use { serverSocket ->
+            serverSocket.soTimeout = 0 // الانتظار المفتوح لحين اتصال العميل
             serverSocket.accept().use { clientSocket ->
                 DataInputStream(BufferedInputStream(clientSocket.getInputStream(), BUFFER_SIZE)).use { dis ->
                     val filesCount = dis.readInt()
@@ -83,6 +78,8 @@ class NetworkTransferEngine {
                     dos.flush()
 
                     val resumeSignal = socket.getInputStream().read()
+                    if (resumeSignal == -1) throw IOException("Lost connection to receiver server.")
+                    
                     val startOffset = if (resumeSignal == 1 && file.exists()) file.length() else 0L
                     sentBytesTotal += startOffset
 
