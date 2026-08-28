@@ -1,89 +1,95 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:gravity="center_horizontal">
+    android:fillViewport="true">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="إعدادات جلسة النقل"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="24dp" />
-
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="حدد دور الجهاز:"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center_horizontal">
 
-    <RadioGroup
-        android:id="@+id/radioGroupRole"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="16dp">
-
-        <RadioButton
-            android:id="@+id/radioSender"
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="مرسل (Sender)" />
+            android:text="إعدادات جلسة النقل"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="24dp" />
 
-        <RadioButton
-            android:id="@+id/radioReceiver"
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="مستلم (Receiver)" />
-    </RadioGroup>
+            android:text="حدد دور الجهاز:"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="وسيط الاتصال (بدون إنترنت):"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
-
-    <RadioGroup
-        android:id="@+id/radioGroupMode"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="16dp">
-
-        <RadioButton
-            android:id="@+id/radioWifi"
-            android:layout_width="0dp"
+        <RadioGroup
+            android:id="@+id/radioGroupRole"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="نقطة اتصال Wi-Fi" />
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
 
-        <RadioButton
-            android:id="@+id/radioUsb"
-            android:layout_width="0dp"
+            <RadioButton
+                android:id="@+id/radioSender"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="مرسل (Sender)" />
+
+            <RadioButton
+                android:id="@+id/radioReceiver"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="مستلم (Receiver)" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="كيبل USB" />
-    </RadioGroup>
+            android:text="وسيط الاتصال (بدون إنترنت):"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
 
-    <EditText
-        android:id="@+id/edtTargetIp"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="أدخل عنوان IP الجهاز المستقبل (مثال: 192.168.4.1)"
-        android:inputType="text"
-        android:layout_marginBottom="24dp" />
+        <RadioGroup
+            android:id="@+id/radioGroupMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
 
-    <Button
-        android:id="@+id/btnProceed"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="متابعة لفحص والتحقق من الاتصال" />
+            <RadioButton
+                android:id="@+id/radioWifi"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="نقطة اتصال Wi-Fi" />
 
-</LinearLayout>
+            <RadioButton
+                android:id="@+id/radioUsb"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="كيبل USB" />
+        </RadioGroup>
+
+        <EditText
+            android:id="@+id/edtTargetIp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="أدخل عنوان IP الجهاز المستقبل (مثال: 192.168.4.1)"
+            android:inputType="text"
+            android:layout_marginBottom="24dp" />
+
+        <Button
+            android:id="@+id/btnProceed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="متابعة لفحص والتحقق من الاتصال" />
+
+    </LinearLayout>
+</ScrollView>
