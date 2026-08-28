@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
 
     private val STORAGE_PERMISSION_CODE = 1001
 
+    private var transferMode: String = "WIFI"
     private var transferRole: String = "SENDER"
     private var targetIp: String = ""
 
@@ -41,6 +42,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        transferMode = intent.getStringExtra("TRANSFER_MODE") ?: "WIFI"
         transferRole = intent.getStringExtra("TRANSFER_ROLE") ?: "SENDER"
         targetIp = intent.getStringExtra("TARGET_IP") ?: ""
 
@@ -59,7 +61,7 @@ class MainActivity : AppCompatActivity() {
         
         radioRegular.isChecked = true
         
-        btnStartTransfer.text = if (transferRole == "SENDER") "بدء الإرسال فائق السرعة" else "تشغيل خادم الاستقبال السريع"
+        btnStartTransfer.text = if (transferRole == "SENDER") "بدء الإرسال فائق السرعة ($transferMode)" else "تشغيل خادم الاستقبال السريع"
     }
 
     private fun setupListeners() {
@@ -130,6 +132,7 @@ class MainActivity : AppCompatActivity() {
 
         val serviceIntent = Intent(this, TransferForegroundService::class.java).apply {
             putExtra(TransferForegroundService.EXTRA_MODE, transferRole)
+            putExtra("TRANSFER_MODE", transferMode)
             putExtra(TransferForegroundService.EXTRA_IP, ipToUse)
             putExtra(TransferForegroundService.EXTRA_SOURCE_PATH, targetInfo.sourceDir.absolutePath)
         }
@@ -140,7 +143,7 @@ class MainActivity : AppCompatActivity() {
             startService(serviceIntent)
         }
 
-        txtStatus.text = "الخدمة تعمل في الخلفية. راقب شريط الإشعارات لمعرفة حالة الاتصال الحقيقية."
+        txtStatus.text = "الخدمة تعمل في الخلفية عبر ($transferMode). راقب شريط الإشعارات للحالة."
         Toast.makeText(this, "تم بدء خدمة النقل الخلفية.", Toast.LENGTH_SHORT).show()
     }
 }
