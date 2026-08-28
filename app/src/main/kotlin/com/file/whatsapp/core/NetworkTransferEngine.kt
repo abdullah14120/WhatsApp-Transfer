@@ -18,13 +18,16 @@ class NetworkTransferEngine {
         ServerSocket(PORT).use { serverSocket ->
             serverSocket.soTimeout = 0
             serverSocket.accept().use { clientSocket ->
+                clientSocket.keepAlive = true
+                clientSocket.tcpNoDelay = true
+                
                 DataInputStream(BufferedInputStream(clientSocket.getInputStream(), BUFFER_SIZE)).use { dis ->
                     val filesCount = dis.readInt()
                     val totalSessionBytes = dis.readLong()
                     var receivedBytesTotal = dis.readLong()
 
                     for (i in 0 until filesCount) {
-                        val relativePath = dis.readUTF() ?: "unknown_file"
+                        val relativePath = dis.readUTF() ?: "file_$i"
                         val fileLength = dis.readLong()
 
                         val targetFile = File(outputDir, relativePath)
@@ -41,8 +44,11 @@ class NetworkTransferEngine {
                                 val buffer = ByteArray(BUFFER_SIZE)
                                 var remaining = fileLength - existingLen
                                 while (remaining > 0) {
-                                    val read = dis.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                                    if (read == -1) throw IOException("Unexpected end of stream while receiving file: $relativePath")
+                                    val toRead = minOf(buffer.size.toLong(), remaining).toInt()
+                                    val read = dis.read(buffer, 0, toRead)
+                                    if (read == -1) {
+                                        throw EOFException("Unexpected EOF while reading $relativePath. Remaining bytes: $remaining")
+                                    }
                                     bos.write(buffer, 0, read)
                                     remaining -= read
                                     receivedBytesTotal += read
@@ -61,6 +67,9 @@ class NetworkTransferEngine {
 
     suspend fun connectAndSend(serverIp: String, sourceDir: File, onProgress: (String, Int) -> Unit) = withContext(Dispatchers.IO) {
         Socket(serverIp, PORT).use { socket ->
+            socket.keepAlive = true
+            socket.tcpNoDelay = true
+
             val allFiles = sourceDir.walkTopDown().filter { it.isFile }.toList()
             val totalBytesAll = allFiles.sumOf { it.length() }
             var sentBytesTotal = 0L
@@ -78,7 +87,7 @@ class NetworkTransferEngine {
                     dos.flush()
 
                     val resumeSignal = socket.getInputStream().read()
-                    if (resumeSignal == -1) throw IOException("Lost connection to receiver server during handshake.")
+                    if (resumeSignal == -1) throw IOException("Lost connection to receiver server during handshake for $relativePath")
                     
                     val startOffset = if (resumeSignal == 1 && file.exists()) file.length() else 0L
                     sentBytesTotal += startOffset
