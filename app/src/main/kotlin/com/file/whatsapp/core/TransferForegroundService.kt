@@ -31,7 +31,7 @@ class TransferForegroundService : Service() {
         super.onCreate()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WhatsAppTransfer::MaxPerformanceWakeLock")
-        wakeLock.acquire(4 * 60 * 60 * 1000L) // قفل طاقة مقنن لمنع دخول المعالج في وضع السكون
+        wakeLock.acquire(4 * 60 * 60 * 1000L)
         createNotificationChannel()
     }
 
@@ -60,8 +60,9 @@ class TransferForegroundService : Service() {
                 updateNotification("اكتمل نقل البيانات بنجاح تام.", 100, false)
                 delay(2000)
             } catch (e: Exception) {
-                updateNotification("خطأ حرج في التدفق: ${e.localizedMessage}", 0, false)
-                delay(5000)
+                val errorMsg = e.localizedMessage ?: e.message ?: e.javaClass.simpleName
+                updateNotification("خطأ حرج في التدفق: $errorMsg", 0, false)
+                delay(6000)
             } finally {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
