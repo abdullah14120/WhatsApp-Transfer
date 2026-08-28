@@ -3,19 +3,21 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.file.whatsapp">
 
-    <!-- Permissions: Storage & Scoped Storage Bypass -->
+    <!-- الأذونات القياسية وأذونات التخزين الموسعة -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    
+    <!-- إذن الوصول إلى كل الملفات (All files access) الظاهر في إعدادات النظام المتقدمة -->
     <uses-permission 
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
         tools:ignore="ScopedStorage" />
 
-    <!-- Permissions: Foreground Service & WakeLock for Background Persistence -->
+    <!-- أذونات الخدمات الخلفية ومنع السكون -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Permissions: Local Network Connectivity (Wi-Fi Sockets / Hotspot) -->
+    <!-- أذونات الشبكة والاتصال المحلي المباشر -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -30,7 +32,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.WhatsAppTransfer">
 
-        <!-- UI Component: Role & Session Selection Entry Point -->
         <activity
             android:name=".ui.RoleSelectionActivity"
             android:exported="true">
@@ -40,17 +41,14 @@
             </intent-filter>
         </activity>
 
-        <!-- UI Component: Mode Selection Intermediate Activity -->
         <activity
             android:name=".ui.ModeSelectionActivity"
             android:exported="false" />
 
-        <!-- UI Component: Execution Activity -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="false" />
 
-        <!-- Core Logic Component: Background Foreground Service -->
         <service 
             android:name=".core.TransferForegroundService"
             android:exported="false"
