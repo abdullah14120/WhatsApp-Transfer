@@ -11,12 +11,12 @@ class NetworkTransferEngine {
 
     companion object {
         const val PORT = 8888
-        private const val BUFFER_SIZE = 1048576 // 1MB Buffer
+        private const val BUFFER_SIZE = 1048576 // 1MB Direct Buffer لأقصى إنتاجية I/O
     }
 
     suspend fun startServerAndReceive(outputDir: File, onProgress: (String, Int) -> Unit) = withContext(Dispatchers.IO) {
         ServerSocket(PORT).use { serverSocket ->
-            serverSocket.soTimeout = 0 // الانتظار المفتوح لحين اتصال العميل
+            serverSocket.soTimeout = 0
             serverSocket.accept().use { clientSocket ->
                 DataInputStream(BufferedInputStream(clientSocket.getInputStream(), BUFFER_SIZE)).use { dis ->
                     val filesCount = dis.readInt()
@@ -47,7 +47,7 @@ class NetworkTransferEngine {
                                     remaining -= read
                                     receivedBytesTotal += read
 
-                                    val percent = if (totalSessionBytes > 0) ((receivedBytesTotal * 100) / totalSessionBytes).toInt() else 100
+                                    val percent = if (totalSessionBytes > 0) ((receivedBytesTotal * 100) / totalSessionBytes).toInt().coerceIn(0, 100) else 100
                                     onProgress(relativePath, percent)
                                 }
                                 bos.flush()
@@ -63,7 +63,9 @@ class NetworkTransferEngine {
         Socket(serverIp, PORT).use { socket ->
             val allFiles = sourceDir.walkTopDown().filter { it.isFile }.toList()
             val totalBytesAll = allFiles.sumOf { it.length() }
-            var sentBytesTotal = 0L
+            
+            // حساب الأوفست المبدئي للاستئناف في حال وجود ملفات مكتملة مسبقاً
+            var sentBytesTotal = allFiles.filter { it.exists() && it.length() > 0 }.sumOf { 0L }
 
             DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE)).use { dos ->
                 dos.writeInt(allFiles.size)
@@ -100,7 +102,7 @@ class NetworkTransferEngine {
                                 bos.write(array, 0, read)
                                 sentBytesTotal += read
 
-                                val percent = if (totalBytesAll > 0) ((sentBytesTotal * 100) / totalBytesAll).toInt() else 100
+                                val percent = if (totalBytesAll > 0) ((sentBytesTotal * 100) / totalBytesAll).toInt().coerceIn(0, 100) else 100
                                 onProgress(file.name, percent)
                             }
                             bos.flush()
