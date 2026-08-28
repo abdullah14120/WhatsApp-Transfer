@@ -40,6 +40,11 @@
             </intent-filter>
         </activity>
 
+        <!-- UI Component: Mode Selection Intermediate Activity -->
+        <activity
+            android:name=".ui.ModeSelectionActivity"
+            android:exported="false" />
+
         <!-- UI Component: Execution Activity -->
         <activity
             android:name=".ui.MainActivity"
