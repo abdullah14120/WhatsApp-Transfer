@@ -31,20 +31,14 @@ class RoleSelectionActivity : AppCompatActivity() {
         edtTargetIp = findViewById(R.id.edtTargetIp)
         btnProceed = findViewById(R.id.btnProceed)
 
-        // إعداد الحالة الافتراضية
         radioGroupRole.check(R.id.radioSender)
         radioGroupMode.check(R.id.radioWifi)
-        edtTargetIp.visibility = View.VISIBLE
+        updateIpVisibility()
     }
 
     private fun setupListeners() {
-        radioGroupMode.setOnCheckedChangeListener { _, checkedId ->
-            if (checkedId == R.id.radioWifi) {
-                edtTargetIp.visibility = View.VISIBLE
-            } else {
-                edtTargetIp.visibility = View.GONE
-            }
-        }
+        radioGroupRole.setOnCheckedChangeListener { _, _ -> updateIpVisibility() }
+        radioGroupMode.setOnCheckedChangeListener { _, _ -> updateIpVisibility() }
 
         btnProceed.setOnClickListener {
             val role = if (radioGroupRole.checkedRadioButtonId == R.id.radioSender) {
@@ -67,6 +61,18 @@ class RoleSelectionActivity : AppCompatActivity() {
                 putExtra("TARGET_IP", targetIp)
             }
             startActivity(intent)
+        }
+    }
+
+    private fun updateIpVisibility() {
+        val isWifi = radioGroupMode.checkedRadioButtonId == R.id.radioWifi
+        val isSender = radioGroupRole.checkedRadioButtonId == R.id.radioSender
+        
+        // إظهار حقل الـ IP فقط في حال كان الوضع Wi-Fi والدور مرسل (Sender)
+        if (isWifi && isSender) {
+            edtTargetIp.visibility = View.VISIBLE
+        } else {
+            edtTargetIp.visibility = View.GONE
         }
     }
 }
