@@ -11,7 +11,7 @@ class NetworkTransferEngine {
 
     companion object {
         const val PORT = 8888
-        private const val BUFFER_SIZE = 1048576 // 1MB Direct Buffer لأقصى إنتاجية I/O
+        private const val BUFFER_SIZE = 1048576 // 1MB Direct Buffer
     }
 
     suspend fun startServerAndReceive(outputDir: File, onProgress: (String, Int) -> Unit) = withContext(Dispatchers.IO) {
@@ -24,7 +24,7 @@ class NetworkTransferEngine {
                     var receivedBytesTotal = dis.readLong()
 
                     for (i in 0 until filesCount) {
-                        val relativePath = dis.readUTF()
+                        val relativePath = dis.readUTF() ?: "unknown_file"
                         val fileLength = dis.readLong()
 
                         val targetFile = File(outputDir, relativePath)
@@ -42,7 +42,7 @@ class NetworkTransferEngine {
                                 var remaining = fileLength - existingLen
                                 while (remaining > 0) {
                                     val read = dis.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                                    if (read == -1) break
+                                    if (read == -1) throw IOException("Unexpected end of stream while receiving file: $relativePath")
                                     bos.write(buffer, 0, read)
                                     remaining -= read
                                     receivedBytesTotal += read
@@ -63,9 +63,7 @@ class NetworkTransferEngine {
         Socket(serverIp, PORT).use { socket ->
             val allFiles = sourceDir.walkTopDown().filter { it.isFile }.toList()
             val totalBytesAll = allFiles.sumOf { it.length() }
-            
-            // حساب الأوفست المبدئي للاستئناف في حال وجود ملفات مكتملة مسبقاً
-            var sentBytesTotal = allFiles.filter { it.exists() && it.length() > 0 }.sumOf { 0L }
+            var sentBytesTotal = 0L
 
             DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE)).use { dos ->
                 dos.writeInt(allFiles.size)
@@ -80,7 +78,7 @@ class NetworkTransferEngine {
                     dos.flush()
 
                     val resumeSignal = socket.getInputStream().read()
-                    if (resumeSignal == -1) throw IOException("Lost connection to receiver server.")
+                    if (resumeSignal == -1) throw IOException("Lost connection to receiver server during handshake.")
                     
                     val startOffset = if (resumeSignal == 1 && file.exists()) file.length() else 0L
                     sentBytesTotal += startOffset
