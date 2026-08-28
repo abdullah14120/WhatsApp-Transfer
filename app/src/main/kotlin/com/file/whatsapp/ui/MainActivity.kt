@@ -20,7 +20,6 @@ import androidx.core.content.ContextCompat
 import com.file.whatsapp.R
 import com.file.whatsapp.core.WhatsAppPathHelper
 import com.file.whatsapp.core.TransferForegroundService
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
