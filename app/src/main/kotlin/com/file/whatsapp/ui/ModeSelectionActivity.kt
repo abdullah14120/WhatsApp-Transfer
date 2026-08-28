@@ -11,20 +11,19 @@ class ModeSelectionActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_mode_selection)
 
-        findViewById<Button>(dirBtnId(R.id.btnUsbMode)).setOnClickListener {
-            launchMain("USB")
+        findViewById<Button>(R.id.btnUsbMode).setOnClickListener {
+            launchMain("USB", "SENDER")
         }
 
         findViewById<Button>(R.id.btnWifiMode).setOnClickListener {
-            launchMain("WIFI")
+            launchMain("WIFI", "SENDER")
         }
     }
 
-    private fun dirBtnId(id: Int) = id
-
-    private fun launchMain(mode: String) {
+    private fun launchMain(mode: String, role: String) {
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra("TRANSFER_MODE", mode)
+            putExtra("TRANSFER_ROLE", role)
         }
         startActivity(intent)
     }
