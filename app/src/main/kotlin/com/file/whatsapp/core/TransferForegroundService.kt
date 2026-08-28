@@ -31,7 +31,7 @@ class TransferForegroundService : Service() {
         super.onCreate()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WhatsAppTransfer::MaxPerformanceWakeLock")
-        wakeLock.acquire(8 * 60 * 60 * 1000L)
+        wakeLock.acquire(4 * 60 * 60 * 1000L) // قفل طاقة مقنن لمنع دخول المعالج في وضع السكون
         createNotificationChannel()
     }
 
@@ -40,62 +40,74 @@ class TransferForegroundService : Service() {
         val ip = intent?.getStringExtra(EXTRA_IP) ?: "192.168.4.1"
         val sourcePath = intent?.getStringExtra(EXTRA_SOURCE_PATH)
 
-        startForeground(NOTIFICATION_ID, createNotification("جاري تهيئة قناة الاتصال والربط...", 0))
+        startForeground(NOTIFICATION_ID, createNotification("تهيئة قناة النقل العازلة...", 0, true))
 
         serviceScope.launch {
             try {
                 val destinationDir = File(getExternalFilesDir(null), "WhatsAppTransfer_HighSpeed")
                 if (mode == "RECEIVER") {
-                    updateNotification("في انتظار اتصال المرسل على البورت ${NetworkTransferEngine.PORT}...", 0)
+                    updateNotification("استماع فائق على المنفذ ${NetworkTransferEngine.PORT}...", 0, true)
                     networkEngine.startServerAndReceive(destinationDir) { name, percent ->
-                        updateNotification("استقبال: $name ($percent%)", percent)
+                        updateNotification("استقبال: $name ($percent%)", percent, false)
                     }
                 } else if (sourcePath != null) {
                     val sourceFile = File(sourcePath)
-                    updateNotification("جاري الاتصال بالمستقبل عبر ($ip)...", 0)
+                    updateNotification("ربط مباشر مع المضيف ($ip)...", 0, true)
                     networkEngine.connectAndSend(ip, sourceFile) { name, percent ->
-                        updateNotification("إرسال: $name ($percent%)", percent)
+                        updateNotification("إرسال: $name ($percent%)", percent, false)
                     }
                 }
-                updateNotification("اكتمل النقل بنجاح تام وبأقصى سرعة!", 100)
-                delay(3000)
+                updateNotification("اكتمل نقل البيانات بنجاح تام.", 100, false)
+                delay(2000)
             } catch (e: Exception) {
-                updateNotification("فشل الاتصال أو النقل: ${e.localizedMessage}", 0)
-                delay(6000)
+                updateNotification("خطأ حرج في التدفق: ${e.localizedMessage}", 0, false)
+                delay(5000)
             } finally {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
         }
 
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "High Speed Transfer", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "High Speed Transfer Engine",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "قناة مخصصة للتحكم في خدمات نقل بيانات واتساب في الخلفية"
+                setShowBadge(false)
+            }
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 
-    private fun createNotification(content: String, progress: Int): Notification {
+    private fun createNotification(content: String, progress: Int, indeterminate: Boolean): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("منظومة النقل فائق السرعة")
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setProgress(100, progress, progress > 0)
+            .setProgress(100, progress, indeterminate)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 
-    private fun updateNotification(content: String, progress: Int) {
+    private fun updateNotification(content: String, progress: Int, indeterminate: Boolean) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(NOTIFICATION_ID, createNotification(content, progress))
+        manager.notify(NOTIFICATION_ID, createNotification(content, progress, indeterminate))
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (::wakeLock.isInitialized && wakeLock.isHeld) wakeLock.release()
+        if (::wakeLock.isInitialized && wakeLock.isHeld) {
+            try {
+                wakeLock.release()
+            } catch (_: Exception) {}
+        }
         serviceScope.cancel()
     }
 
