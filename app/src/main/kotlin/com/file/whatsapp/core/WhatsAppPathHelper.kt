@@ -32,7 +32,6 @@ object WhatsAppPathHelper {
                     TargetInfo(legacyDir, false, "Internal Storage Root (Legacy)")
                 }
                 else -> {
-                    // الافتراضي لأندرويد 11+ في حال عدم الإنشاء المسبق
                     TargetInfo(mediaDir, true, "Android/media (Default)")
                 }
             }
