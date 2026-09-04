@@ -1,99 +1,137 @@
 package com.file.whatsapp.engine
 
 import com.file.whatsapp.model.TransferStats
+import com.file.whatsapp.model.TransferState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.io.BufferedOutputStream
-import java.io.DataOutputStream
-import java.io.File
-import java.io.FileInputStream
+import java.io.*
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
 
 object SenderEngine {
 
-    private const val BUFFER_SIZE = 128 * 1024 // 128KB لنقل فائق السرعة عبر Wi-Fi Direct
+    private const val BUFFER_SIZE = 128 * 1024
     private const val PORT = 8998
+
+    @Volatile var isPaused = false
+    @Volatile var isCancelled = false
 
     suspend fun sendDirectory(
         sourceDir: File,
-        targetIp: String,
+        targetIpProvider: () -> String,
         onProgress: (TransferStats) -> Unit
     ) = withContext(Dispatchers.IO) {
-
-        if (!sourceDir.exists() || !sourceDir.isDirectory) {
-            throw IllegalArgumentException("مجلد المصدر غير موجود أو تالف: \${sourceDir.absolutePath}")
-        }
+        isPaused = false
+        isCancelled = false
 
         val allFiles = sourceDir.walkTopDown().filter { it.isFile }.toList()
         val totalBytes = allFiles.sumOf { it.length() }
-        var transferredBytes = 0L
-        var transferredFilesCount = 0
+        var currentFileIndex = 0
 
-        Socket().use { socket ->
-            socket.tcpNoDelay = true
-            socket.keepAlive = true
-            socket.sendBufferSize = BUFFER_SIZE * 2
-            socket.connect(InetSocketAddress(targetIp, PORT), 30_000)
+        while (currentFileIndex < allFiles.size && !isCancelled) {
+            try {
+                val ip = targetIpProvider()
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.keepAlive = true
+                    socket.soTimeout = 15_000
+                    socket.connect(InetSocketAddress(ip, PORT), 10_000)
 
-            val outStream = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE))
+                    val out = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE))
+                    val inStream = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_SIZE))
 
-            // إرسال معلومات الرأس (Total Files & Bytes)
-            outStream.writeInt(allFiles.size)
-            outStream.writeLong(totalBytes)
-            outStream.flush()
+                    // إرسال إجمالي الملفات والحجم الكلي
+                    out.writeInt(allFiles.size)
+                    out.writeLong(totalBytes)
+                    out.flush()
 
-            val buffer = ByteArray(BUFFER_SIZE)
-            var lastCalculationTime = System.currentTimeMillis()
-            var bytesSinceLastCalc = 0L
-            var currentSpeed = 0L
+                    val buffer = ByteArray(BUFFER_SIZE)
 
-            for (file in allFiles) {
-                val relativePath = file.relativeTo(sourceDir).path.replace('\\', '/')
-                outStream.writeUTF(relativePath)
-                outStream.writeLong(file.length())
+                    while (currentFileIndex < allFiles.size && !isCancelled) {
+                        // التعامل مع الإيقاف المؤقت
+                        while (isPaused && !isCancelled) {
+                            onProgress(TransferStats(state = TransferState.PAUSED))
+                            delay(500)
+                        }
+                        if (isCancelled) break
 
-                FileInputStream(file).buffered(BUFFER_SIZE).use { fis ->
-                    var bytesRead: Int
-                    while (fis.read(buffer).also { bytesRead = it } != -1) {
-                        outStream.write(buffer, 0, bytesRead)
-                        transferredBytes += bytesRead
-                        bytesSinceLastCalc += bytesRead
+                        val file = allFiles[currentFileIndex]
+                        val relativePath = file.relativeTo(sourceDir).path.replace('\\', '/')
+                        val fileLength = file.length()
 
-                        val now = System.currentTimeMillis()
-                        val diff = now - lastCalculationTime
-                        if (diff >= 500) {
-                            currentSpeed = (bytesSinceLastCalc * 1000L) / diff
-                            lastCalculationTime = now
-                            bytesSinceLastCalc = 0L
+                        out.writeUTF(relativePath)
+                        out.writeLong(fileLength)
+                        out.flush()
 
-                            onProgress(
-                                TransferStats(
-                                    currentFileName = file.name,
-                                    filesTransferred = transferredFilesCount,
-                                    totalFiles = allFiles.size,
-                                    bytesTransferred = transferredBytes,
-                                    totalBytes = totalBytes,
-                                    speedBytesPerSec = currentSpeed
-                                )
-                            )
+                        // قراءة الإزاحة (Offset) التي يطلبها المستلم للاستئناف
+                        val offset = inStream.readLong()
+
+                        if (offset < fileLength) {
+                            RandomAccessFile(file, "r").use { raf ->
+                                raf.seek(offset)
+                                var fileRemaining = fileLength - offset
+                                var lastTime = System.currentTimeMillis()
+                                var bytesBatch = 0L
+
+                                while (fileRemaining > 0 && !isCancelled && !isPaused) {
+                                    val toRead = Math.min(buffer.size.toLong(), fileRemaining).toInt()
+                                    val read = raf.read(buffer, 0, toRead)
+                                    if (read == -1) break
+
+                                    out.write(buffer, 0, read)
+                                    fileRemaining -= read
+                                    bytesBatch += read
+
+                                    val now = System.currentTimeMillis()
+                                    val diff = now - lastTime
+                                    if (diff >= 500) {
+                                        val speed = (bytesBatch * 1000L) / diff
+                                        lastTime = now
+                                        bytesBatch = 0L
+                                        onProgress(
+                                            TransferStats(
+                                                state = TransferState.RUNNING,
+                                                currentFileName = file.name,
+                                                filesTransferred = currentFileIndex,
+                                                totalFiles = allFiles.size,
+                                                speedBytesPerSec = speed
+                                            )
+                                        )
+                                    }
+                                }
+                                out.flush()
+                            }
+                        }
+
+                        // إذا خرج بسبب الإيقاف المؤقت، لا ننتقل للملف التالي
+                        if (isPaused || isCancelled) continue
+
+                        // تأكيد إتمام الملف من المستلم
+                        val status = inStream.readByte()
+                        if (status == 1.toByte()) {
+                            currentFileIndex++
                         }
                     }
                 }
-                outStream.flush()
-                transferredFilesCount++
-            }
-
-            onProgress(
-                TransferStats(
-                    currentFileName = "اكتمل",
-                    filesTransferred = allFiles.size,
-                    totalFiles = allFiles.size,
-                    bytesTransferred = totalBytes,
-                    totalBytes = totalBytes,
-                    speedBytesPerSec = 0L
+            } catch (e: Exception) {
+                if (isCancelled) break
+                // وضع إعادة الاتصال التلقائي عند انقطاع الشبكة
+                onProgress(
+                    TransferStats(
+                        state = TransferState.RECONNECTING,
+                        errorMessage = "انقطع الاتصال، جاري المحاولة والمزامنة..."
+                    )
                 )
-            )
+                delay(3000)
+            }
+        }
+
+        if (isCancelled) {
+            onProgress(TransferStats(state = TransferState.IDLE, errorMessage = "تم إلغاء النقل"))
+        } else {
+            onProgress(TransferStats(state = TransferState.COMPLETED, totalFiles = allFiles.size, filesTransferred = allFiles.size))
         }
     }
 }
