@@ -90,13 +90,13 @@ class TransferForegroundService : Service() {
                 SenderEngine.isPaused = true
                 ReceiverEngine.isPaused = true
                 _transferState.value = _transferState.value.copy(state = TransferState.PAUSED)
-                updateNotification("تم الإيقاف مؤقتاً")
+                updateStatusNotification("تم الإيقاف مؤقتاً")
             }
             ACTION_RESUME -> {
                 SenderEngine.isPaused = false
                 ReceiverEngine.isPaused = false
                 _transferState.value = _transferState.value.copy(state = TransferState.RUNNING)
-                updateNotification("جاري استئناف النقل...")
+                updateStatusNotification("جاري استئناف النقل...")
             }
             ACTION_CANCEL -> {
                 SenderEngine.isCancelled = true
@@ -118,13 +118,7 @@ class TransferForegroundService : Service() {
                     targetIpProvider = dynamicIpProvider,
                     onProgress = { stats ->
                         _transferState.value = stats
-                        if (stats.state == TransferState.RUNNING) {
-                            updateNotification(
-                                "نقل: ${stats.filesTransferred}/${stats.totalFiles} (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
-                            )
-                        } else if (stats.state == TransferState.RECONNECTING) {
-                            updateNotification("جاري إعادة الاتصال تلقائياً...")
-                        }
+                        handleProgressNotification(role, stats)
                     }
                 )
             } else {
@@ -133,29 +127,48 @@ class TransferForegroundService : Service() {
                     targetDirectory = destinationDir,
                     onProgress = { stats ->
                         _transferState.value = stats
-                        if (stats.state == TransferState.RUNNING) {
-                            updateNotification(
-                                "استقبال: ${stats.filesTransferred}/${stats.totalFiles} (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
-                            )
-                        } else if (stats.state == TransferState.RECONNECTING) {
-                            updateNotification("في انتظار الاتصال...")
-                        }
+                        handleProgressNotification(role, stats)
                     }
                 )
             }
             _transferState.value = _transferState.value.copy(state = TransferState.COMPLETED)
-            updateNotification("اكتمل نقل جميع بيانات واتساب بنجاح!")
+            showCompletionNotification("اكتمل نقل وتثبيت جميع بيانات واتساب بنجاح!")
         } catch (e: Exception) {
             _transferState.value = _transferState.value.copy(
                 state = TransferState.ERROR,
                 errorMessage = e.localizedMessage ?: "حدث خطأ غير متوقع"
             )
-            updateNotification("خطأ: ${e.message}")
+            updateStatusNotification("خطأ أثناء النقل: ${e.message}")
         }
     }
 
-    private fun startForegroundNotification(text: String) {
-        val notification = buildNotification(text)
+    private fun handleProgressNotification(role: TransferRole, stats: TransferStats) {
+        val rolePrefix = if (role == TransferRole.SENDER) "إرسال" else "استقبال"
+        when (stats.state) {
+            TransferState.RUNNING -> {
+                val percent = if (stats.totalBytes > 0) ((stats.bytesTransferred * 100) / stats.totalBytes).toInt() else 0
+                val speedMb = stats.speedBytesPerSec / (1024 * 1024)
+                val statusText = "$rolePrefix: ${stats.filesTransferred}/${stats.totalFiles} ملف ($speedMb MB/s)"
+                updateLiveProgressNotification(100, percent, statusText)
+            }
+            TransferState.CONNECTING -> {
+                updateIndeterminateProgressNotification("جاري فحص الاتصال والمصافحة...")
+            }
+            TransferState.CONNECTED -> {
+                updateIndeterminateProgressNotification("تم الاتصال بنجاح! جاري التجهيز...")
+            }
+            TransferState.RECONNECTING -> {
+                updateIndeterminateProgressNotification("جاري إعادة الاتصال التلقائي بالشبكة...")
+            }
+            TransferState.PAUSED -> {
+                updateStatusNotification("النقل متوقف مؤقتاً")
+            }
+            else -> {}
+        }
+    }
+
+    private fun startForegroundNotification(initialText: String) {
+        val notification = buildProgressNotification(0, 0, initialText, true)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -163,26 +176,53 @@ class TransferForegroundService : Service() {
         }
     }
 
-    private fun updateNotification(text: String) {
+    private fun updateLiveProgressNotification(max: Int, progress: Int, contentText: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        manager?.notify(NOTIFICATION_ID, buildNotification(text))
+        manager?.notify(NOTIFICATION_ID, buildProgressNotification(max, progress, contentText, false))
     }
 
-    private fun buildNotification(text: String) = NotificationCompat.Builder(this, WhatsAppTransferApp.CHANNEL_ID)
-        .setContentTitle("WhatsApp Turbo Migration")
-        .setContentText(text)
-        .setSmallIcon(android.R.drawable.stat_sys_upload)
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setContentIntent(
-            PendingIntent.getActivity(
-                this,
-                0,
-                Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE
+    private fun updateIndeterminateProgressNotification(contentText: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        manager?.notify(NOTIFICATION_ID, buildProgressNotification(0, 0, contentText, true))
+    }
+
+    private fun updateStatusNotification(contentText: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        manager?.notify(NOTIFICATION_ID, buildBaseNotification(contentText).build())
+    }
+
+    private fun showCompletionNotification(contentText: String) {
+        val notification = buildBaseNotification(contentText)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setProgress(0, 0, false)
+            .build()
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        manager?.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun buildProgressNotification(max: Int, progress: Int, contentText: String, indeterminate: Boolean): Notification {
+        return buildBaseNotification(contentText)
+            .setProgress(max, progress, indeterminate)
+            .build()
+    }
+
+    private fun buildBaseNotification(contentText: String): NotificationCompat.Builder {
+        return NotificationCompat.Builder(this, WhatsAppTransferApp.CHANNEL_ID)
+            .setContentTitle("ناقل واتساب السريع الذكي")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_IMMUTABLE
+                )
             )
-        )
-        .build()
+    }
 
     override fun onDestroy() {
         super.onDestroy()
