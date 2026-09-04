@@ -12,6 +12,7 @@ object ReceiverEngine {
 
     private const val BUFFER_SIZE = 128 * 1024
     private const val PORT = 8998
+    private const val HANDSHAKE_MAGIC = "WA_TRANSFER_SYNC_OK"
 
     @Volatile var isPaused = false
     @Volatile var isCancelled = false
@@ -31,18 +32,42 @@ object ReceiverEngine {
 
             while (!isCancelled) {
                 try {
-                    onProgress(TransferStats(state = TransferState.RECONNECTING, currentFileName = "في انتظار الاتصال..."))
+                    onProgress(
+                        TransferStats(
+                            state = TransferState.CONNECTING,
+                            currentFileName = "المنفذ مفتوح: في انتظار إشارة الجهاز المرسل..."
+                        )
+                    )
+
                     val clientSocket = serverSocket.accept().apply {
                         tcpNoDelay = true
-                        soTimeout = 15_000
+                        soTimeout = 25_000
                     }
 
                     val inStream = DataInputStream(BufferedInputStream(clientSocket.getInputStream(), BUFFER_SIZE))
                     val out = DataOutputStream(BufferedOutputStream(clientSocket.getOutputStream(), BUFFER_SIZE))
 
+                    // التحقق من المصافحة
+                    val handshake = inStream.readUTF()
+                    if (handshake != HANDSHAKE_MAGIC) {
+                        clientSocket.close()
+                        continue
+                    }
+
+                    // رد التأكيد للمرسل
+                    out.writeUTF(HANDSHAKE_MAGIC)
+                    out.flush()
+
+                    onProgress(
+                        TransferStats(
+                            state = TransferState.CONNECTED,
+                            currentFileName = "تم الاتصال بالمرسل بنجاح! جاري البدء..."
+                        )
+                    )
+                    delay(500)
+
                     val totalFiles = inStream.readInt()
                     val totalBytes = inStream.readLong()
-
                     val buffer = ByteArray(BUFFER_SIZE)
 
                     while (!isCancelled) {
@@ -58,23 +83,20 @@ object ReceiverEngine {
                         val finalFile = File(targetDirectory, relativePath)
                         finalFile.parentFile?.mkdirs()
 
-                        // ملف مؤقت لحماية البيانات الأصلية
                         val partFile = File(targetDirectory, "$relativePath.part")
 
-                        // التحقق هل الملف موجود مسبقاً ومكتمل
+                        // فحص الملفات المكتملة مسبقاً
                         if (finalFile.exists() && finalFile.length() == fileSize) {
-                            out.writeLong(fileSize) // إشعار المرسل بتخطي الملف
+                            out.writeLong(fileSize)
                             out.flush()
-                            inStream.readByte() // مزامنة الـ ACK
+                            inStream.readByte()
                             continue
                         }
 
-                        // التحقق من الحجم المحمل سابقاً للاستئناف
                         val existingBytes = if (partFile.exists()) partFile.length() else 0L
                         out.writeLong(existingBytes)
                         out.flush()
 
-                        // استئناف الكتابة بوضع الإلحاق (Append Mode = true)
                         FileOutputStream(partFile, true).buffered(BUFFER_SIZE).use { fos ->
                             var remaining = fileSize - existingBytes
                             var lastTime = System.currentTimeMillis()
@@ -109,18 +131,17 @@ object ReceiverEngine {
 
                         if (isPaused || isCancelled) break
 
-                        // بمجرد اكتمال تنزيل الملف بنجاح، نحوله لاسمه الحقيقي مع الاستبدال
                         if (partFile.length() == fileSize) {
                             if (finalFile.exists()) finalFile.delete()
                             partFile.renameTo(finalFile)
-                            out.writeByte(1) // ACK نجاح للمرسل
+                            out.writeByte(1)
                             out.flush()
                         }
                     }
                     clientSocket.close()
                 } catch (e: Exception) {
                     if (isCancelled) break
-                    delay(2000)
+                    delay(1500)
                 }
             }
         } finally {
