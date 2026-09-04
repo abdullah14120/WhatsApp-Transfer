@@ -57,7 +57,7 @@ fun TransferScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
 
-            // Role Selector
+            // تحديد دور الجهاز
             Text("اختر وظيفة هذا الجهاز", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -92,7 +92,7 @@ fun TransferScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Package Selector
+            // اختيار نوع الحزمة
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -119,7 +119,7 @@ fun TransferScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Smart Path Detection Info
+            // بطاقة الكشف التلقائي عن المسار
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f))
@@ -131,13 +131,15 @@ fun TransferScreen(
                         Text("الكشف الذكي عن المسار المتوافق", fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(6.dp))
+
+                    val pathInfo = if (currentRole == TransferRole.SENDER) {
+                        "مسار القراءة التلقائي:\n$detectedSourcePath"
+                    } else {
+                        "مسار الحفظ والاستبدال:\n$detectedTargetPath"
+                    }
+
                     Text(
-                        text = if (currentRole == TransferRole.SENDER)
-                            "مسار القراءة التلقائي:
-\$detectedSourcePath"
-                        else
-                            "مسار الحفظ والاستبدال:
-\$detectedTargetPath",
+                        text = pathInfo,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -147,7 +149,7 @@ fun TransferScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // IP Input if Sender
+            // حقل إدخال الآي بي للمرسل
             if (currentRole == TransferRole.SENDER) {
                 OutlinedTextField(
                     value = targetIp,
@@ -160,7 +162,7 @@ fun TransferScreen(
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Transfer Monitor Panel
+            // لوحة متابعة النقل في الوقت الفعلي
             AnimatedVisibility(visible = isRunning || stats.isCompleted || stats.errorMessage != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -182,12 +184,12 @@ fun TransferScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("الملفات: \${stats.filesTransferred} / \${stats.totalFiles}", fontSize = 12.sp)
-                            Text("السرعة: \${stats.speedBytesPerSec / (1024 * 1024)} MB/s", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("الملفات: ${stats.filesTransferred} / ${stats.totalFiles}", fontSize = 12.sp)
+                            Text("السرعة: ${stats.speedBytesPerSec / (1024 * 1024)} MB/s", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
                         if (stats.currentFileName.isNotEmpty()) {
-                            Text("الملف الحالي: \${stats.currentFileName}", fontSize = 11.sp, maxLines = 1)
+                            Text("الملف الحالي: ${stats.currentFileName}", fontSize = 11.sp, maxLines = 1)
                         }
 
                         stats.errorMessage?.let {
