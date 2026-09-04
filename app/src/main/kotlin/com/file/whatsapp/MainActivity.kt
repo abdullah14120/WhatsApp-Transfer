@@ -1,9 +1,13 @@
 package com.file.whatsapp
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -23,6 +27,8 @@ import com.file.whatsapp.model.TransferRole
 import com.file.whatsapp.model.WhatsAppPackage
 import com.file.whatsapp.service.TransferForegroundService
 import com.file.whatsapp.ui.TransferScreen
+import java.net.Inet4Address
+import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
 
@@ -59,7 +65,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             var role by remember { mutableStateOf(TransferRole.SENDER) }
             var selectedPackage by remember { mutableStateOf(WhatsAppPackage.STANDARD) }
-            var targetIp by remember { mutableStateOf("192.168.49.1") }
+            
+            // قراءة عنوان البوابة (Gateway IP) تلقائياً عند الإقلاع
+            var targetIp by remember { 
+                mutableStateOf(detectNetworkGatewayIp() ?: "192.168.49.1") 
+            }
 
             val transferStats by TransferForegroundService.transferState.collectAsState()
             val isRunning by TransferForegroundService.isRunning.collectAsState()
@@ -97,7 +107,13 @@ class MainActivity : ComponentActivity() {
 
             TransferScreen(
                 currentRole = role,
-                onRoleChange = { role = it },
+                onRoleChange = { newRole ->
+                    role = newRole
+                    // تحديث عنوان الآي بي تلقائياً حسب البوابة عند التبديل
+                    if (newRole == TransferRole.SENDER) {
+                        targetIp = detectNetworkGatewayIp() ?: "192.168.49.1"
+                    }
+                },
                 selectedPkg = selectedPackage,
                 onPackageChange = { selectedPackage = it },
                 targetIp = targetIp,
@@ -119,7 +135,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // التحقق وتحديث حالة الصلاحية تلقائياً عند عودة المستخدم من شاشة الإعدادات
         checkAndRefreshPermissions()
     }
 
@@ -177,5 +192,42 @@ class MainActivity : ComponentActivity() {
             putExtra(TransferForegroundService.EXTRA_TARGET_IP, targetIp)
         }
         ContextCompat.startForegroundService(this, intent)
+    }
+
+    /**
+     * استخراج عنوان البوابة (Gateway IPv4 / Router IP) تلقائياً:
+     * عند اتصال المرسل بنقطة اتصال (Hotspot) المستلم، يكون عنوان المستلم هو الـ Gateway.
+     */
+    private fun detectNetworkGatewayIp(): String? {
+        try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (connectivityManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val activeNetwork = connectivityManager.activeNetwork
+                val linkProperties: LinkProperties? = connectivityManager.getLinkProperties(activeNetwork)
+                if (linkProperties != null) {
+                    for (route in linkProperties.routes) {
+                        if (route.isDefaultRoute && route.gateway is Inet4Address) {
+                            val gateway = route.gateway?.hostAddress
+                            if (!gateway.isNullOrEmpty() && gateway != "0.0.0.0") {
+                                return gateway
+                            }
+                        }
+                    }
+                }
+            }
+
+            // للأجهزة القديمة كحل بديل عبر DHCP
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            val dhcpInfo = wifiManager?.dhcpInfo
+            if (dhcpInfo != null && dhcpInfo.gateway != 0) {
+                val ip = dhcpInfo.gateway
+                return (ip and 0xFF).toString() + "." +
+                        (ip shr 8 and 0xFF) + "." +
+                        (ip shr 16 and 0xFF) + "." +
+                        (ip shr 24 and 0xFF)
+            }
+        } catch (_: Exception) {}
+
+        return null
     }
 }
