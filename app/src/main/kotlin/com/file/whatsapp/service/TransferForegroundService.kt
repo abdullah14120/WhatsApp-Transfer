@@ -1,6 +1,7 @@
 package com.file.whatsapp.service
 
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
@@ -12,7 +13,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.file.whatsapp.MainActivity
-import com.file.whatsapp.R
 import com.file.whatsapp.WhatsAppTransferApp
 import com.file.whatsapp.core.PathResolver
 import com.file.whatsapp.engine.ReceiverEngine
@@ -102,7 +102,7 @@ class TransferForegroundService : Service() {
                     onProgress = { stats ->
                         _transferState.value = stats
                         updateNotification(
-                            "نقل: \${stats.filesTransferred}/\${stats.totalFiles} ملفات (\${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
+                            "نقل: ${stats.filesTransferred}/${stats.totalFiles} ملفات (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
                         )
                     }
                 )
@@ -113,7 +113,7 @@ class TransferForegroundService : Service() {
                     onProgress = { stats ->
                         _transferState.value = stats
                         updateNotification(
-                            "استقبال: \${stats.filesTransferred}/\${stats.totalFiles} ملفات (\${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
+                            "استقبال: ${stats.filesTransferred}/${stats.totalFiles} ملفات (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
                         )
                     }
                 )
@@ -122,7 +122,7 @@ class TransferForegroundService : Service() {
             updateNotification("اكتمل نقل وتثبيت جميع بيانات واتساب بنجاح!")
         } catch (e: Exception) {
             _transferState.value = _transferState.value.copy(errorMessage = e.localizedMessage ?: "حدث خطأ غير متوقع")
-            updateNotification("خطأ أثناء النقل: \${e.message}")
+            updateNotification("خطأ أثناء النقل: ${e.message}")
         } finally {
             _isRunning.value = false
         }
@@ -138,7 +138,7 @@ class TransferForegroundService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        val manager = getSystemService(NotificationManager::class.java)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         manager?.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
