@@ -1,7 +1,6 @@
 package com.file.whatsapp.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,12 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.file.whatsapp.model.TransferRole
+import com.file.whatsapp.model.TransferState
 import com.file.whatsapp.model.TransferStats
 import com.file.whatsapp.model.WhatsAppPackage
 
@@ -35,7 +33,10 @@ fun TransferScreen(
     stats: TransferStats,
     detectedSourcePath: String,
     detectedTargetPath: String,
-    onStartTransfer: () -> Unit
+    onStartTransfer: () -> Unit,
+    onPauseTransfer: () -> Unit,
+    onResumeTransfer: () -> Unit,
+    onCancelTransfer: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -154,7 +155,7 @@ fun TransferScreen(
                 OutlinedTextField(
                     value = targetIp,
                     onValueChange = onIpChange,
-                    label = { Text("عنوان IP للمستلم (Wi-Fi Direct / Hotspot)") },
+                    label = { Text("عنوان IP للمستلم (Wi-Fi Direct / Gateway)") },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isRunning,
                     singleLine = true
@@ -163,23 +164,34 @@ fun TransferScreen(
             }
 
             // لوحة متابعة النقل في الوقت الفعلي
-            AnimatedVisibility(visible = isRunning || stats.isCompleted || stats.errorMessage != null) {
+            AnimatedVisibility(visible = isRunning || stats.state == TransferState.COMPLETED || stats.errorMessage != null) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+                        val headerStatusText = when (stats.state) {
+                            TransferState.COMPLETED -> "اكتمل النقل بنجاح!"
+                            TransferState.PAUSED -> "تم الإيقاف مؤقتاً"
+                            TransferState.RECONNECTING -> "جاري استعادة الاتصال تلقائياً..."
+                            TransferState.ERROR -> "حدث خطأ"
+                            else -> "جاري النقل بسرعة فائقة..."
+                        }
+
                         Text(
-                            text = if (stats.isCompleted) "اكتمل النقل بنجاح!" else if (stats.errorMessage != null) "حدث خطأ" else "جاري النقل بسرعة فائقة...",
+                            text = headerStatusText,
                             fontWeight = FontWeight.Bold,
-                            color = if (stats.errorMessage != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onTertiaryContainer
+                            color = if (stats.state == TransferState.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onTertiaryContainer
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
                         val progress = if (stats.totalBytes > 0) (stats.bytesTransferred.toFloat() / stats.totalBytes.toFloat()) else 0f
                         LinearProgressIndicator(
                             progress = { progress },
-                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -195,6 +207,47 @@ fun TransferScreen(
                         stats.errorMessage?.let {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                        }
+
+                        // أزرار التحكم أثناء النقل (إيقاف مؤقت / استئناف / إلغاء)
+                        if (isRunning) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (stats.state == TransferState.PAUSED) {
+                                    Button(
+                                        onClick = onResumeTransfer,
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("استئناف")
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onPauseTransfer,
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                    ) {
+                                        Icon(Icons.Default.Pause, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("إيقاف مؤقت")
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    onClick = onCancelTransfer,
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("إلغاء")
+                                }
+                            }
                         }
                     }
                 }
