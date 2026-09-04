@@ -30,7 +30,11 @@ import com.file.whatsapp.model.TransferState
 import com.file.whatsapp.model.WhatsAppPackage
 import com.file.whatsapp.service.TransferForegroundService
 import com.file.whatsapp.ui.TransferScreen
+import kotlinx.coroutines.*
+import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
@@ -85,6 +89,26 @@ class MainActivity : ComponentActivity() {
 
             val currentDeviceIp = remember {
                 detectLocalDeviceIp() ?: "غير متصل بالواي فاي"
+            }
+
+            // الاكتشاف التلقائي لعنوان IP بين الجهازين عبر UDP Broadcast
+            DisposableEffect(role) {
+                val discoveryScope = CoroutineScope(Dispatchers.IO)
+                val discoveryJob = if (role == TransferRole.RECEIVER) {
+                    // إذا كان هذا الجهاز هو المستلم: يبث إشارته داخل الشبكة
+                    startBroadcastingPresence(discoveryScope)
+                } else {
+                    // إذا كان هذا الجهاز هو المرسل: يستمع لإشارة المستلم لضبط عنوان IP تلقائياً
+                    listenForReceiverSignal(discoveryScope) { detectedIp ->
+                        targetIp = detectedIp
+                        Toast.makeText(this@MainActivity, "تم اكتشاف الجهاز المستلم: $detectedIp", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                onDispose {
+                    discoveryJob.cancel()
+                    discoveryScope.cancel()
+                }
             }
 
             val transferStats by TransferForegroundService.transferState.collectAsState()
@@ -301,5 +325,65 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {}
         return null
+    }
+
+    // ==========================================
+    // محرك الاكتشاف التلقائي المدمج عبر UDP
+    // ==========================================
+    private fun startBroadcastingPresence(scope: CoroutineScope): Job {
+        return scope.launch(Dispatchers.IO) {
+            var socket: DatagramSocket? = null
+            try {
+                socket = DatagramSocket().apply { broadcast = true }
+                val signal = "WA_RECEIVER_DISCOVERY_PING".toByteArray()
+                val packet = DatagramPacket(
+                    signal,
+                    signal.size,
+                    InetAddress.getByName("255.255.255.255"),
+                    8888
+                )
+                while (isActive) {
+                    socket.send(packet)
+                    delay(1200)
+                }
+            } catch (_: Exception) {
+            } finally {
+                socket?.close()
+            }
+        }
+    }
+
+    private fun listenForReceiverSignal(scope: CoroutineScope, onFound: (String) -> Unit): Job {
+        return scope.launch(Dispatchers.IO) {
+            var socket: DatagramSocket? = null
+            try {
+                socket = DatagramSocket(8888).apply {
+                    reuseAddress = true
+                    soTimeout = 3000
+                }
+                val buffer = ByteArray(512)
+                val packet = DatagramPacket(buffer, buffer.size)
+
+                while (isActive) {
+                    try {
+                        socket.receive(packet)
+                        val message = String(packet.data, 0, packet.length)
+                        if (message == "WA_RECEIVER_DISCOVERY_PING") {
+                            val detectedIp = packet.address.hostAddress
+                            if (!detectedIp.isNullOrEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    onFound(detectedIp)
+                                }
+                                break
+                            }
+                        }
+                    } catch (_: Exception) {
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                socket?.close()
+            }
+        }
     }
 }
