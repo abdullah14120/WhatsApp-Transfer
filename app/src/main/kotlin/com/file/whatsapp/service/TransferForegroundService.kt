@@ -1,9 +1,7 @@
 package com.file.whatsapp.service
 
 import android.annotation.SuppressLint
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.app.Service
+import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -17,13 +15,10 @@ import com.file.whatsapp.WhatsAppTransferApp
 import com.file.whatsapp.core.PathResolver
 import com.file.whatsapp.engine.ReceiverEngine
 import com.file.whatsapp.engine.SenderEngine
-import com.file.whatsapp.model.TransferRole
-import com.file.whatsapp.model.TransferStats
-import com.file.whatsapp.model.WhatsAppPackage
+import com.file.whatsapp.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.io.File
 
 class TransferForegroundService : Service() {
 
@@ -33,7 +28,11 @@ class TransferForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
     companion object {
-        const val ACTION_START_TRANSFER = "ACTION_START_TRANSFER"
+        const val ACTION_START = "ACTION_START"
+        const val ACTION_PAUSE = "ACTION_PAUSE"
+        const val ACTION_RESUME = "ACTION_RESUME"
+        const val ACTION_CANCEL = "ACTION_CANCEL"
+
         const val EXTRA_ROLE = "EXTRA_ROLE"
         const val EXTRA_PACKAGE = "EXTRA_PACKAGE"
         const val EXTRA_TARGET_IP = "EXTRA_TARGET_IP"
@@ -42,8 +41,7 @@ class TransferForegroundService : Service() {
         private val _transferState = MutableStateFlow(TransferStats())
         val transferState = _transferState.asStateFlow()
 
-        private val _isRunning = MutableStateFlow(false)
-        val isRunning = _isRunning.asStateFlow()
+        var dynamicIpProvider: () -> String = { "192.168.49.1" }
     }
 
     override fun onCreate() {
@@ -53,23 +51,21 @@ class TransferForegroundService : Service() {
 
     @SuppressLint("WakelockTimeout")
     private fun acquireLocks() {
-        // حجز WakeLock يمنع المعالج من النوم (Deep Sleep) مهما طال النقل
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "WhatsAppTransfer::WakeLockUltra"
         ).apply {
             setReferenceCounted(false)
-            acquire(48 * 60 * 60 * 1000L) // 48 ساعة أمان
+            acquire(48 * 60 * 60 * 1000L)
         }
 
-        // حجز WifiLock بأعلى درجات الأداء لمنع انخفاض سرعة الواي فاي بالخلفية
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         wifiLock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "WhatsAppTransfer::WifiLockHighPerf")
+            wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "WhatsAppTransfer::WifiLock")
         } else {
             @Suppress("DEPRECATION")
-            wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WhatsAppTransfer::WifiLockHighPerf")
+            wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WhatsAppTransfer::WifiLock")
         }.apply {
             setReferenceCounted(false)
             acquire()
@@ -77,33 +73,58 @@ class TransferForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_START_TRANSFER) {
-            val role = intent.getSerializableExtra(EXTRA_ROLE) as? TransferRole ?: TransferRole.RECEIVER
-            val pkg = intent.getSerializableExtra(EXTRA_PACKAGE) as? WhatsAppPackage ?: WhatsAppPackage.STANDARD
-            val targetIp = intent.getStringExtra(EXTRA_TARGET_IP) ?: "192.168.49.1"
+        when (intent?.action) {
+            ACTION_START -> {
+                val role = intent.getSerializableExtra(EXTRA_ROLE) as? TransferRole ?: TransferRole.RECEIVER
+                val pkg = intent.getSerializableExtra(EXTRA_PACKAGE) as? WhatsAppPackage ?: WhatsAppPackage.STANDARD
+                val targetIp = intent.getStringExtra(EXTRA_TARGET_IP) ?: "192.168.49.1"
+                
+                dynamicIpProvider = { targetIp }
 
-            startForegroundNotification("جاري بدء الاتصال ومزامنة البيانات...")
-            _isRunning.value = true
-
-            serviceScope.launch {
-                executeTransferProcess(role, pkg, targetIp)
+                startForegroundNotification("جاري المزامنة وبدء النقل...")
+                serviceScope.launch {
+                    executeTransferProcess(role, pkg)
+                }
+            }
+            ACTION_PAUSE -> {
+                SenderEngine.isPaused = true
+                ReceiverEngine.isPaused = true
+                _transferState.value = _transferState.value.copy(state = TransferState.PAUSED)
+                updateNotification("تم الإيقاف مؤقتاً")
+            }
+            ACTION_RESUME -> {
+                SenderEngine.isPaused = false
+                ReceiverEngine.isPaused = false
+                _transferState.value = _transferState.value.copy(state = TransferState.RUNNING)
+                updateNotification("جاري استئناف النقل...")
+            }
+            ACTION_CANCEL -> {
+                SenderEngine.isCancelled = true
+                ReceiverEngine.isCancelled = true
+                _transferState.value = TransferStats(state = TransferState.IDLE)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
         }
         return START_NOT_STICKY
     }
 
-    private suspend fun executeTransferProcess(role: TransferRole, pkg: WhatsAppPackage, targetIp: String) {
+    private suspend fun executeTransferProcess(role: TransferRole, pkg: WhatsAppPackage) {
         try {
             if (role == TransferRole.SENDER) {
                 val sourceDir = PathResolver.resolveSourceDirectory(pkg)
                 SenderEngine.sendDirectory(
                     sourceDir = sourceDir,
-                    targetIp = targetIp,
+                    targetIpProvider = dynamicIpProvider,
                     onProgress = { stats ->
                         _transferState.value = stats
-                        updateNotification(
-                            "نقل: ${stats.filesTransferred}/${stats.totalFiles} ملفات (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
-                        )
+                        if (stats.state == TransferState.RUNNING) {
+                            updateNotification(
+                                "نقل: ${stats.filesTransferred}/${stats.totalFiles} (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
+                            )
+                        } else if (stats.state == TransferState.RECONNECTING) {
+                            updateNotification("جاري إعادة الاتصال تلقائياً...")
+                        }
                     }
                 )
             } else {
@@ -112,19 +133,24 @@ class TransferForegroundService : Service() {
                     targetDirectory = destinationDir,
                     onProgress = { stats ->
                         _transferState.value = stats
-                        updateNotification(
-                            "استقبال: ${stats.filesTransferred}/${stats.totalFiles} ملفات (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
-                        )
+                        if (stats.state == TransferState.RUNNING) {
+                            updateNotification(
+                                "استقبال: ${stats.filesTransferred}/${stats.totalFiles} (${stats.speedBytesPerSec / (1024 * 1024)} MB/s)"
+                            )
+                        } else if (stats.state == TransferState.RECONNECTING) {
+                            updateNotification("في انتظار الاتصال...")
+                        }
                     }
                 )
             }
-            _transferState.value = _transferState.value.copy(isCompleted = true)
-            updateNotification("اكتمل نقل وتثبيت جميع بيانات واتساب بنجاح!")
+            _transferState.value = _transferState.value.copy(state = TransferState.COMPLETED)
+            updateNotification("اكتمل نقل جميع بيانات واتساب بنجاح!")
         } catch (e: Exception) {
-            _transferState.value = _transferState.value.copy(errorMessage = e.localizedMessage ?: "حدث خطأ غير متوقع")
-            updateNotification("خطأ أثناء النقل: ${e.message}")
-        } finally {
-            _isRunning.value = false
+            _transferState.value = _transferState.value.copy(
+                state = TransferState.ERROR,
+                errorMessage = e.localizedMessage ?: "حدث خطأ غير متوقع"
+            )
+            updateNotification("خطأ: ${e.message}")
         }
     }
 
@@ -143,7 +169,7 @@ class TransferForegroundService : Service() {
     }
 
     private fun buildNotification(text: String) = NotificationCompat.Builder(this, WhatsAppTransferApp.CHANNEL_ID)
-        .setContentTitle("WhatsApp Fast Turbo Migration")
+        .setContentTitle("WhatsApp Turbo Migration")
         .setContentText(text)
         .setSmallIcon(android.R.drawable.stat_sys_upload)
         .setOngoing(true)
@@ -163,7 +189,6 @@ class TransferForegroundService : Service() {
         serviceJob.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }
-        _isRunning.value = false
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
