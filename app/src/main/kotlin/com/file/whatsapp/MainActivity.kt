@@ -1,6 +1,7 @@
 package com.file.whatsapp
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,6 +12,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -24,11 +26,11 @@ import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import com.file.whatsapp.core.PathResolver
 import com.file.whatsapp.model.TransferRole
+import com.file.whatsapp.model.TransferState
 import com.file.whatsapp.model.WhatsAppPackage
 import com.file.whatsapp.service.TransferForegroundService
 import com.file.whatsapp.ui.TransferScreen
 import java.net.Inet4Address
-import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
 
@@ -40,6 +42,13 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) {
         checkAndRefreshPermissions()
+    }
+
+    // مسجل نتيجة طلب استثناء تحسين البطارية (Doze Mode Exemption)
+    private val batteryOptimizationLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // تم التعامل مع خروج المستخدم من شاشة البطارية
     }
 
     // مسجل طلب الصلاحيات العادية (Nearby Devices، الإشعارات، والموقع للأنظمة الأقدم)
@@ -55,24 +64,28 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
         checkAndRefreshPermissions()
         if (!hasStoragePermission) {
             requestAllFilesAccess()
         }
         requestSystemRuntimePermissions()
+        
+        // تفعيل استثناء Doze Mode لضمان عدم إيقاف النقل نهائياً عند إطفاء الشاشة
+        requestIgnoreBatteryOptimizations()
 
         setContent {
             var role by remember { mutableStateOf(TransferRole.SENDER) }
             var selectedPackage by remember { mutableStateOf(WhatsAppPackage.STANDARD) }
-            
-            // قراءة عنوان البوابة (Gateway IP) تلقائياً عند الإقلاع
-            var targetIp by remember { 
-                mutableStateOf(detectNetworkGatewayIp() ?: "192.168.49.1") 
+
+            var targetIp by remember {
+                mutableStateOf(detectNetworkGatewayIp() ?: "192.168.49.1")
             }
 
             val transferStats by TransferForegroundService.transferState.collectAsState()
-            val isRunning by TransferForegroundService.isRunning.collectAsState()
+            val isRunning = transferStats.state == TransferState.RUNNING || 
+                            transferStats.state == TransferState.PAUSED || 
+                            transferStats.state == TransferState.RECONNECTING
 
             val sourcePath = remember(selectedPackage) {
                 PathResolver.resolveSourceDirectory(selectedPackage).absolutePath
@@ -81,13 +94,12 @@ class MainActivity : ComponentActivity() {
                 PathResolver.resolveTargetDirectory(selectedPackage).absolutePath
             }
 
-            // تنبيه يظهر في حال محاولة النقل دون تفعيل الصلاحية
             if (showPermissionDialog) {
                 AlertDialog(
                     onDismissRequest = { showPermissionDialog = false },
                     title = { Text("مطلوب إذن الوصول لجميع الملفات") },
-                    text = { 
-                        Text("يحتاج التطبيق إلى صلاحية الوصول لكافة الملفات لنقل مجلدات الواتساب واستبدالها بنجاح دون توقف أو تلف.") 
+                    text = {
+                        Text("يحتاج التطبيق إلى صلاحية الوصول لكافة الملفات لنقل مجلدات الواتساب واستبدالها بنجاح دون توقف أو تلف.")
                     },
                     confirmButton = {
                         Button(onClick = {
@@ -109,7 +121,6 @@ class MainActivity : ComponentActivity() {
                 currentRole = role,
                 onRoleChange = { newRole ->
                     role = newRole
-                    // تحديث عنوان الآي بي تلقائياً حسب البوابة عند التبديل
                     if (newRole == TransferRole.SENDER) {
                         targetIp = detectNetworkGatewayIp() ?: "192.168.49.1"
                     }
@@ -128,6 +139,15 @@ class MainActivity : ComponentActivity() {
                         return@TransferScreen
                     }
                     startTransferService(role, selectedPackage, targetIp)
+                },
+                onPauseTransfer = {
+                    sendServiceAction(TransferForegroundService.ACTION_PAUSE)
+                },
+                onResumeTransfer = {
+                    sendServiceAction(TransferForegroundService.ACTION_RESUME)
+                },
+                onCancelTransfer = {
+                    sendServiceAction(TransferForegroundService.ACTION_CANCEL)
                 }
             )
         }
@@ -184,9 +204,33 @@ class MainActivity : ComponentActivity() {
         runtimePermissionLauncher.launch(permissions.toTypedArray())
     }
 
+    /**
+     * استثناء التطبيق من وضع السكون وتحسين البطارية (Doze Mode Exemption):
+     * يمنع النظام من إيقاف أو تجميد عمل الـ Sockets ونقل الشبكة أثناء قفل الشاشة أو وضع السكون.
+     */
+    @SuppressLint("BatteryLife")
+    private fun requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    batteryOptimizationLauncher.launch(intent)
+                } catch (e: Exception) {
+                    try {
+                        val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                        batteryOptimizationLauncher.launch(fallbackIntent)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
     private fun startTransferService(role: TransferRole, pkg: WhatsAppPackage, targetIp: String) {
         val intent = Intent(this, TransferForegroundService::class.java).apply {
-            action = TransferForegroundService.ACTION_START_TRANSFER
+            action = TransferForegroundService.ACTION_START
             putExtra(TransferForegroundService.EXTRA_ROLE, role)
             putExtra(TransferForegroundService.EXTRA_PACKAGE, pkg)
             putExtra(TransferForegroundService.EXTRA_TARGET_IP, targetIp)
@@ -194,10 +238,13 @@ class MainActivity : ComponentActivity() {
         ContextCompat.startForegroundService(this, intent)
     }
 
-    /**
-     * استخراج عنوان البوابة (Gateway IPv4 / Router IP) تلقائياً:
-     * عند اتصال المرسل بنقطة اتصال (Hotspot) المستلم، يكون عنوان المستلم هو الـ Gateway.
-     */
+    private fun sendServiceAction(action: String) {
+        val intent = Intent(this, TransferForegroundService::class.java).apply {
+            this.action = action
+        }
+        startService(intent)
+    }
+
     private fun detectNetworkGatewayIp(): String? {
         try {
             val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -216,7 +263,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // للأجهزة القديمة كحل بديل عبر DHCP
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             val dhcpInfo = wifiManager?.dhcpInfo
             if (dhcpInfo != null && dhcpInfo.gateway != 0) {
