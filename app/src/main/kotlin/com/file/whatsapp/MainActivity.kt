@@ -31,6 +31,7 @@ import com.file.whatsapp.model.WhatsAppPackage
 import com.file.whatsapp.service.TransferForegroundService
 import com.file.whatsapp.ui.TransferScreen
 import java.net.Inet4Address
+import java.net.NetworkInterface
 
 class MainActivity : ComponentActivity() {
 
@@ -82,8 +83,14 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(detectNetworkGatewayIp() ?: "192.168.49.1")
             }
 
+            val currentDeviceIp = remember {
+                detectLocalDeviceIp() ?: "غير متصل بالواي فاي"
+            }
+
             val transferStats by TransferForegroundService.transferState.collectAsState()
             val isRunning = transferStats.state == TransferState.RUNNING || 
+                            transferStats.state == TransferState.CONNECTING ||
+                            transferStats.state == TransferState.CONNECTED ||
                             transferStats.state == TransferState.PAUSED || 
                             transferStats.state == TransferState.RECONNECTING
 
@@ -129,6 +136,7 @@ class MainActivity : ComponentActivity() {
                 onPackageChange = { selectedPackage = it },
                 targetIp = targetIp,
                 onIpChange = { targetIp = it },
+                currentDeviceIp = currentDeviceIp,
                 isRunning = isRunning,
                 stats = transferStats,
                 detectedSourcePath = sourcePath,
@@ -274,6 +282,24 @@ class MainActivity : ComponentActivity() {
             }
         } catch (_: Exception) {}
 
+        return null
+    }
+
+    private fun detectLocalDeviceIp(): String? {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+            for (intf in interfaces) {
+                if (intf.isLoopback || !intf.isUp) continue
+                for (addr in intf.inetAddresses) {
+                    if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                        val ip = addr.hostAddress
+                        if (ip != null && !ip.startsWith("127.")) {
+                            return ip
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
         return null
     }
 }
