@@ -29,6 +29,7 @@ import com.file.whatsapp.model.TransferRole
 import com.file.whatsapp.model.TransferState
 import com.file.whatsapp.model.WhatsAppPackage
 import com.file.whatsapp.service.TransferForegroundService
+import com.file.whatsapp.ui.ActiveTransferScreen
 import com.file.whatsapp.ui.TransferScreen
 import kotlinx.coroutines.*
 import java.net.DatagramPacket
@@ -95,10 +96,8 @@ class MainActivity : ComponentActivity() {
             DisposableEffect(role) {
                 val discoveryScope = CoroutineScope(Dispatchers.IO)
                 val discoveryJob = if (role == TransferRole.RECEIVER) {
-                    // إذا كان هذا الجهاز هو المستلم: يبث إشارته داخل الشبكة
                     startBroadcastingPresence(discoveryScope)
                 } else {
-                    // إذا كان هذا الجهاز هو المرسل: يستمع لإشارة المستلم لضبط عنوان IP تلقائياً
                     listenForReceiverSignal(discoveryScope) { detectedIp ->
                         targetIp = detectedIp
                         Toast.makeText(this@MainActivity, "تم اكتشاف الجهاز المستلم: $detectedIp", Toast.LENGTH_SHORT).show()
@@ -148,40 +147,60 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            TransferScreen(
-                currentRole = role,
-                onRoleChange = { newRole ->
-                    role = newRole
-                    if (newRole == TransferRole.SENDER) {
-                        targetIp = detectNetworkGatewayIp() ?: "192.168.49.1"
+            // التبديل إلى الواجهة المنفصلة التفاعلية فور بدء النقل
+            if (isRunning || transferStats.state == TransferState.COMPLETED) {
+                ActiveTransferScreen(
+                    role = role,
+                    stats = transferStats,
+                    onPause = {
+                        sendServiceAction(TransferForegroundService.ACTION_PAUSE)
+                    },
+                    onResume = {
+                        sendServiceAction(TransferForegroundService.ACTION_RESUME)
+                    },
+                    onCancel = {
+                        sendServiceAction(TransferForegroundService.ACTION_CANCEL)
+                    },
+                    onDone = {
+                        sendServiceAction(TransferForegroundService.ACTION_CANCEL)
                     }
-                },
-                selectedPkg = selectedPackage,
-                onPackageChange = { selectedPackage = it },
-                targetIp = targetIp,
-                onIpChange = { targetIp = it },
-                currentDeviceIp = currentDeviceIp,
-                isRunning = isRunning,
-                stats = transferStats,
-                detectedSourcePath = sourcePath,
-                detectedTargetPath = targetPath,
-                onStartTransfer = {
-                    if (!hasStoragePermission) {
-                        showPermissionDialog = true
-                        return@TransferScreen
+                )
+            } else {
+                TransferScreen(
+                    currentRole = role,
+                    onRoleChange = { newRole ->
+                        role = newRole
+                        if (newRole == TransferRole.SENDER) {
+                            targetIp = detectNetworkGatewayIp() ?: "192.168.49.1"
+                        }
+                    },
+                    selectedPkg = selectedPackage,
+                    onPackageChange = { selectedPackage = it },
+                    targetIp = targetIp,
+                    onIpChange = { targetIp = it },
+                    currentDeviceIp = currentDeviceIp,
+                    isRunning = isRunning,
+                    stats = transferStats,
+                    detectedSourcePath = sourcePath,
+                    detectedTargetPath = targetPath,
+                    onStartTransfer = {
+                        if (!hasStoragePermission) {
+                            showPermissionDialog = true
+                            return@TransferScreen
+                        }
+                        startTransferService(role, selectedPackage, targetIp)
+                    },
+                    onPauseTransfer = {
+                        sendServiceAction(TransferForegroundService.ACTION_PAUSE)
+                    },
+                    onResumeTransfer = {
+                        sendServiceAction(TransferForegroundService.ACTION_RESUME)
+                    },
+                    onCancelTransfer = {
+                        sendServiceAction(TransferForegroundService.ACTION_CANCEL)
                     }
-                    startTransferService(role, selectedPackage, targetIp)
-                },
-                onPauseTransfer = {
-                    sendServiceAction(TransferForegroundService.ACTION_PAUSE)
-                },
-                onResumeTransfer = {
-                    sendServiceAction(TransferForegroundService.ACTION_RESUME)
-                },
-                onCancelTransfer = {
-                    sendServiceAction(TransferForegroundService.ACTION_CANCEL)
-                }
-            )
+                )
+            }
         }
     }
 
