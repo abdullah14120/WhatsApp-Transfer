@@ -12,7 +12,9 @@ enum class WhatsAppPackage(val packageName: String, val displayName: String, val
 
 enum class TransferState {
     IDLE,
-    RUNNING,
+    CONNECTING,     // مرحلة التحقق والمصافحة
+    CONNECTED,      // تم الاتصال بنجاح وجاهز للنقل
+    RUNNING,        // جاري تدفق الملفات
     PAUSED,
     RECONNECTING,
     COMPLETED,
