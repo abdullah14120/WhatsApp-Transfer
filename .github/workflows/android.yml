@@ -27,7 +27,7 @@ jobs:
 
       # 🛠️ تم التصحيح: توليد Gradle Wrapper بإصدار 8.4 ليتوافق مع Kotlin 2.1.0 وإعداداتنا السابقة
       - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.4
+        run: gradle wrapper --gradle-version 8.10.2
 
       - name: Grant Execute Permission for Gradlew
         run: chmod +x gradlew
