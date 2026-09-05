@@ -13,6 +13,8 @@ object ReceiverEngine {
     private const val BUFFER_SIZE = 128 * 1024
     private const val PORT = 8998
     private const val HANDSHAKE_MAGIC = "WA_TRANSFER_SYNC_OK"
+    private const val PING_SIGNAL = "PING_CHECK"
+    private const val PONG_RESPONSE = "PONG_READY"
 
     @Volatile var isPaused = false
     @Volatile var isCancelled = false
@@ -40,7 +42,11 @@ object ReceiverEngine {
                     onProgress(
                         TransferStats(
                             state = TransferState.CONNECTING,
-                            currentFileName = "المنفذ مفتوح: بانتظار إشارة الإرسال..."
+                            currentFileName = "المنفذ مفتوح: بانتظار إشارة الإرسال...",
+                            filesTransferred = filesTransferred,
+                            totalFiles = totalFiles,
+                            bytesTransferred = totalBytesTransferred,
+                            totalBytes = totalBytes
                         )
                     )
 
@@ -52,8 +58,18 @@ object ReceiverEngine {
                     val inStream = DataInputStream(BufferedInputStream(clientSocket.getInputStream(), BUFFER_SIZE))
                     val out = DataOutputStream(BufferedOutputStream(clientSocket.getOutputStream(), BUFFER_SIZE))
 
-                    // التحقق من المصافحة
+                    // قراءة إشارة التحقق
                     val handshake = inStream.readUTF()
+
+                    // الرد السريع على استعلام الفحص (Pre-flight Ping)
+                    if (handshake == PING_SIGNAL) {
+                        out.writeUTF(PONG_RESPONSE)
+                        out.flush()
+                        clientSocket.close()
+                        continue
+                    }
+
+                    // التحقق من كود المصافحة الأساسي لبدء تدفق البيانات
                     if (handshake != HANDSHAKE_MAGIC) {
                         clientSocket.close()
                         continue
@@ -65,7 +81,11 @@ object ReceiverEngine {
                     onProgress(
                         TransferStats(
                             state = TransferState.CONNECTED,
-                            currentFileName = "تم الاتصال! بدء استقبال البيانات..."
+                            currentFileName = "تم الاتصال! بدء استقبال البيانات...",
+                            filesTransferred = filesTransferred,
+                            totalFiles = totalFiles,
+                            bytesTransferred = totalBytesTransferred,
+                            totalBytes = totalBytes
                         )
                     )
                     delay(300)
@@ -97,7 +117,7 @@ object ReceiverEngine {
 
                         val partFile = File(targetDirectory, "$relativePath.part")
 
-                        // إذا كان الملف موجوداً ومكتملاً مسبقاً
+                        // إذا كان الملف موجوداً ومكتملاً مسبقاً يتم تخطيه وإشعار المرسل
                         if (finalFile.exists() && finalFile.length() == fileSize) {
                             totalBytesTransferred += fileSize
                             filesTransferred++
@@ -173,7 +193,7 @@ object ReceiverEngine {
                     }
                     clientSocket.close()
 
-                    if (filesTransferred >= totalFiles) {
+                    if (filesTransferred >= totalFiles && totalFiles > 0) {
                         onProgress(
                             TransferStats(
                                 state = TransferState.COMPLETED,
@@ -192,7 +212,9 @@ object ReceiverEngine {
                 }
             }
         } finally {
-            serverSocket?.close()
+            try {
+                serverSocket?.close()
+            } catch (_: Exception) {}
         }
     }
 }
