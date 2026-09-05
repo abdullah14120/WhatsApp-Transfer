@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.65"
+        android:scaleY="0.65"
+        android:translateX="18.9"
+        android:translateY="18.9">
+        
+        <!-- فقاعة المحادثة المعبرة عن واتساب -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,18 C34.1,18 18,34.1 18,54 C18,61.4 20.2,68.3 24.1,74.1 L19,90 L35.4,85 C40.9,88.2 47.2,90 54,90 C73.9,90 90,73.9 90,54 C90,34.1 73.9,18 54,18 Z" />
+
+        <!-- سهم التزامن الأول المتجه للأعلى/اليمين (إرسال) -->
+        <path
+            android:fillColor="#075E54"
+            android:pathData="M38,44 L60,44 L60,36 L72,48 L60,60 L60,52 L38,52 Z" />
+
+        <!-- سهم التزامن الثاني المعاكس (استقبال) -->
+        <path
+            android:fillColor="#128C7E"
+            android:pathData="M70,64 L48,64 L48,56 L36,68 L48,80 L48,72 L70,72 Z" />
+
+        <!-- نقطة إشارة الاتصال اللاسلكي / السرعة -->
+        <path
+            android:fillColor="#25D366"
+            android:pathData="M54,48 A4,4 0 1,0 54,56 A4,4 0 1,0 54,48" />
+    </group>
+</vector>
