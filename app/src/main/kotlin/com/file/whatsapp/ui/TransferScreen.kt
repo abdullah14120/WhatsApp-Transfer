@@ -41,6 +41,24 @@ fun TransferScreen(
     onResumeTransfer: () -> Unit,
     onCancelTransfer: () -> Unit
 ) {
+    // التحقق من صحة عنوان IP المدخل/المكتشف
+    val isReceiverIpValid = remember(targetIp) {
+        val trimmed = targetIp.trim()
+        val ipv4Regex = Regex("^((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.){3}(25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)$")
+        trimmed.isNotEmpty() && 
+        trimmed != "غير متصل بالواي فاي" && 
+        trimmed != "0.0.0.0" && 
+        trimmed != "127.0.0.1" &&
+        ipv4Regex.matches(trimmed)
+    }
+
+    // السماح بالبدء فقط إذا كان المستلم جاهزاً أو كان الجهاز هو المستلم نفسه
+    val canStartTransfer = if (currentRole == TransferRole.SENDER) {
+        !isRunning && isReceiverIpValid
+    } else {
+        !isRunning && currentDeviceIp != "غير متصل بالواي فاي"
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -159,7 +177,13 @@ fun TransferScreen(
                     value = targetIp,
                     onValueChange = onIpChange,
                     label = { Text("عنوان IP للمستلم") },
-                    supportingText = { Text("ضع عنوان IP الظاهر على شاشة الجهاز المستلم") },
+                    supportingText = { 
+                        Text(
+                            if (isReceiverIpValid) "تم التعرف على عنوان المستلم جاهز للاتصال" 
+                            else "بانتظار ظهور الجهاز المستلم على الشبكة أو كتابة IP يدوياً"
+                        ) 
+                    },
+                    isError = !isReceiverIpValid && targetIp.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isRunning,
                     singleLine = true
@@ -285,16 +309,25 @@ fun TransferScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // زر البدء الذكي
             Button(
                 onClick = onStartTransfer,
-                enabled = !isRunning,
+                enabled = canStartTransfer,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
+                val buttonLabel = when {
+                    isRunning -> "العملية جارية بالخلفية..."
+                    currentRole == TransferRole.SENDER && !isReceiverIpValid -> "بانتظار العثور على الجهاز المستلم..."
+                    currentRole == TransferRole.SENDER -> "بدء فحص الاتصال والإرسال"
+                    currentDeviceIp == "غير متصل بالواي فاي" -> "يرجى الاتصال بالواي فاي أولاً"
+                    else -> "بدء استقبال وحفظ البيانات"
+                }
+
                 Text(
-                    text = if (isRunning) "العملية جارية بالخلفية..." else if (currentRole == TransferRole.SENDER) "بدء فحص الاتصال والإرسال" else "بدء استقبال وحفظ البيانات",
+                    text = buttonLabel,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
