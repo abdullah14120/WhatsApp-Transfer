@@ -27,6 +27,11 @@ object ReceiverEngine {
         if (!targetDirectory.exists()) targetDirectory.mkdirs()
 
         var serverSocket: ServerSocket? = null
+        var totalBytesTransferred = 0L
+        var filesTransferred = 0
+        var totalFiles = 0
+        var totalBytes = 0L
+
         try {
             serverSocket = ServerSocket(PORT).apply { reuseAddress = true }
 
@@ -35,7 +40,7 @@ object ReceiverEngine {
                     onProgress(
                         TransferStats(
                             state = TransferState.CONNECTING,
-                            currentFileName = "المنفذ مفتوح: في انتظار إشارة الجهاز المرسل..."
+                            currentFileName = "المنفذ مفتوح: بانتظار إشارة الإرسال..."
                         )
                     )
 
@@ -54,25 +59,32 @@ object ReceiverEngine {
                         continue
                     }
 
-                    // رد التأكيد للمرسل
                     out.writeUTF(HANDSHAKE_MAGIC)
                     out.flush()
 
                     onProgress(
                         TransferStats(
                             state = TransferState.CONNECTED,
-                            currentFileName = "تم الاتصال بالمرسل بنجاح! جاري البدء..."
+                            currentFileName = "تم الاتصال! بدء استقبال البيانات..."
                         )
                     )
-                    delay(500)
+                    delay(300)
 
-                    val totalFiles = inStream.readInt()
-                    val totalBytes = inStream.readLong()
+                    totalFiles = inStream.readInt()
+                    totalBytes = inStream.readLong()
                     val buffer = ByteArray(BUFFER_SIZE)
 
-                    while (!isCancelled) {
+                    while (!isCancelled && filesTransferred < totalFiles) {
                         while (isPaused && !isCancelled) {
-                            onProgress(TransferStats(state = TransferState.PAUSED))
+                            onProgress(
+                                TransferStats(
+                                    state = TransferState.PAUSED,
+                                    filesTransferred = filesTransferred,
+                                    totalFiles = totalFiles,
+                                    bytesTransferred = totalBytesTransferred,
+                                    totalBytes = totalBytes
+                                )
+                            )
                             delay(500)
                         }
                         if (isCancelled) break
@@ -85,8 +97,10 @@ object ReceiverEngine {
 
                         val partFile = File(targetDirectory, "$relativePath.part")
 
-                        // فحص الملفات المكتملة مسبقاً
+                        // إذا كان الملف موجوداً ومكتملاً مسبقاً
                         if (finalFile.exists() && finalFile.length() == fileSize) {
+                            totalBytesTransferred += fileSize
+                            filesTransferred++
                             out.writeLong(fileSize)
                             out.flush()
                             inStream.readByte()
@@ -94,6 +108,7 @@ object ReceiverEngine {
                         }
 
                         val existingBytes = if (partFile.exists()) partFile.length() else 0L
+                        totalBytesTransferred += existingBytes
                         out.writeLong(existingBytes)
                         out.flush()
 
@@ -110,10 +125,11 @@ object ReceiverEngine {
                                 fos.write(buffer, 0, read)
                                 remaining -= read
                                 bytesBatch += read
+                                totalBytesTransferred += read
 
                                 val now = System.currentTimeMillis()
                                 val diff = now - lastTime
-                                if (diff >= 500) {
+                                if (diff >= 300) {
                                     val speed = (bytesBatch * 1000L) / diff
                                     lastTime = now
                                     bytesBatch = 0L
@@ -121,6 +137,10 @@ object ReceiverEngine {
                                         TransferStats(
                                             state = TransferState.RUNNING,
                                             currentFileName = finalFile.name,
+                                            filesTransferred = filesTransferred,
+                                            totalFiles = totalFiles,
+                                            bytesTransferred = totalBytesTransferred,
+                                            totalBytes = totalBytes,
                                             speedBytesPerSec = speed
                                         )
                                     )
@@ -134,11 +154,38 @@ object ReceiverEngine {
                         if (partFile.length() == fileSize) {
                             if (finalFile.exists()) finalFile.delete()
                             partFile.renameTo(finalFile)
+                            filesTransferred++
                             out.writeByte(1)
                             out.flush()
+
+                            onProgress(
+                                TransferStats(
+                                    state = TransferState.RUNNING,
+                                    currentFileName = finalFile.name,
+                                    filesTransferred = filesTransferred,
+                                    totalFiles = totalFiles,
+                                    bytesTransferred = totalBytesTransferred,
+                                    totalBytes = totalBytes,
+                                    speedBytesPerSec = 0L
+                                )
+                            )
                         }
                     }
                     clientSocket.close()
+
+                    if (filesTransferred >= totalFiles) {
+                        onProgress(
+                            TransferStats(
+                                state = TransferState.COMPLETED,
+                                currentFileName = "اكتمل نقل جميع الملفات بنجاح!",
+                                filesTransferred = totalFiles,
+                                totalFiles = totalFiles,
+                                bytesTransferred = totalBytes,
+                                totalBytes = totalBytes
+                            )
+                        )
+                        break
+                    }
                 } catch (e: Exception) {
                     if (isCancelled) break
                     delay(1500)
