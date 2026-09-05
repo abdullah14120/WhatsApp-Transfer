@@ -8,35 +8,48 @@ import java.io.File
 object PathResolver {
 
     /**
-     * الذكاء في كشف مسار مجلد الواتساب للجهاز المرسل
-     * يفحص مسار Scoped Storage الجديد (Android 11+) أولاً،
-     * وإذا لم يجد به محتويات يعود تلقائياً لمسار Legacy القديم.
+     * تأمين المجلد فوراً عن طريق تغيير اسمه لمنع واتساب من حذفه عند تسجيل الخروج
      */
+    fun secureSourceDirectory(pkg: WhatsAppPackage): File {
+        val originalDir = resolveSourceDirectory(pkg)
+        
+        // إذا كان المجلد الأصلي موجوداً، نحميه بتغيير اسمه
+        if (originalDir.exists()) {
+            val safeDir = File(originalDir.parentFile, "${originalDir.name}_safe_backup")
+            
+            // إذا كان المجلد الآمن غير موجود مسبقاً، نقوم بإعادة التسمية فوراً
+            if (!safeDir.exists()) {
+                val success = originalDir.renameTo(safeDir)
+                if (success) return safeDir
+            } else {
+                return safeDir
+            }
+        }
+        
+        // في حال كان المجلد قد تم تأمينه مسبقاً
+        val alreadySafeDir = File(originalDir.parentFile, "${originalDir.name}_safe_backup")
+        if (alreadySafeDir.exists()) {
+            return alreadySafeDir
+        }
+
+        return originalDir
+    }
+
     fun resolveSourceDirectory(pkg: WhatsAppPackage): File {
         val root = Environment.getExternalStorageDirectory()
         val modernPath = File(root, "Android/media/${pkg.packageName}")
         val legacyPath = File(root, pkg.legacyFolderName)
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (hasActualData(modernPath)) {
-                modernPath
-            } else if (hasActualData(legacyPath)) {
-                legacyPath
-            } else {
-                modernPath // افتراضي في حال كان فارغاً
-            }
+            if (modernPath.exists()) modernPath else legacyPath
         } else {
-            if (hasActualData(legacyPath)) legacyPath else modernPath
+            if (legacyPath.exists()) legacyPath else modernPath
         }
     }
 
-    /**
-     * المسار الصحيح لوضع البيانات في الجهاز الجديد:
-     * إذا كان أندرويد 11 فما فوق (API 30+) يذهب مباشرة لـ Android/media/{pkg}
-     * وإذا كان أندرويد قديم يوضع في مسار الجذر المعتاد.
-     */
     fun resolveTargetDirectory(pkg: WhatsAppPackage): File {
         val root = Environment.getExternalStorageDirectory()
+        // في الجهاز الجديد نضعه دائماً بالاسم الرسمي الصحيح
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             File(root, "Android/media/${pkg.packageName}")
         } else {
