@@ -112,7 +112,9 @@ class TransferForegroundService : Service() {
     private suspend fun executeTransferProcess(role: TransferRole, pkg: WhatsAppPackage) {
         try {
             if (role == TransferRole.SENDER) {
-                val sourceDir = PathResolver.resolveSourceDirectory(pkg)
+                // عزل وتأمين مجلد الواتساب بتغيير اسمه فوراً لمنع حذفه عند تسجيل الخروج
+                val sourceDir = PathResolver.secureSourceDirectory(pkg)
+                
                 SenderEngine.sendDirectory(
                     sourceDir = sourceDir,
                     targetIpProvider = dynamicIpProvider,
