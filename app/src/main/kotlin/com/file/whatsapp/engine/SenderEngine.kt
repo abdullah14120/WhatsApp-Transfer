@@ -29,6 +29,7 @@ object SenderEngine {
         val allFiles = sourceDir.walkTopDown().filter { it.isFile }.toList()
         val totalBytes = allFiles.sumOf { it.length() }
         var currentFileIndex = 0
+        var totalBytesTransferred = 0L
 
         while (currentFileIndex < allFiles.size && !isCancelled) {
             var socket: Socket? = null
@@ -37,7 +38,9 @@ object SenderEngine {
                 onProgress(
                     TransferStats(
                         state = TransferState.CONNECTING,
-                        currentFileName = "جاري التحقق والاتصال بـ: $ip..."
+                        currentFileName = "جاري التحقق والاتصال بـ: $ip...",
+                        totalFiles = allFiles.size,
+                        totalBytes = totalBytes
                     )
                 )
 
@@ -50,7 +53,7 @@ object SenderEngine {
                 val out = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), BUFFER_SIZE))
                 val inStream = DataInputStream(BufferedInputStream(socket.getInputStream(), BUFFER_SIZE))
 
-                // خطوة 1: المصافحة الذكية (Handshake)
+                // مصافحة التأكيد
                 out.writeUTF(HANDSHAKE_MAGIC)
                 out.flush()
 
@@ -62,22 +65,31 @@ object SenderEngine {
                 onProgress(
                     TransferStats(
                         state = TransferState.CONNECTED,
-                        currentFileName = "تم الاتصال بنجاح! جاري تحضير الملفات..."
+                        currentFileName = "تم الاتصال! بدء إرسال البيانات...",
+                        totalFiles = allFiles.size,
+                        totalBytes = totalBytes
                     )
                 )
-                delay(800)
+                delay(400)
 
-                // خطوة 2: إرسال ملخص البيانات الكلي
+                // إرسال الرأس
                 out.writeInt(allFiles.size)
                 out.writeLong(totalBytes)
                 out.flush()
 
                 val buffer = ByteArray(BUFFER_SIZE)
 
-                // خطوة 3: بدء دورة نقل الملفات
                 while (currentFileIndex < allFiles.size && !isCancelled) {
                     while (isPaused && !isCancelled) {
-                        onProgress(TransferStats(state = TransferState.PAUSED))
+                        onProgress(
+                            TransferStats(
+                                state = TransferState.PAUSED,
+                                filesTransferred = currentFileIndex,
+                                totalFiles = allFiles.size,
+                                bytesTransferred = totalBytesTransferred,
+                                totalBytes = totalBytes
+                            )
+                        )
                         delay(500)
                     }
                     if (isCancelled) break
@@ -92,41 +104,52 @@ object SenderEngine {
 
                     val offset = inStream.readLong()
 
-                    if (offset < fileLength) {
-                        RandomAccessFile(file, "r").use { raf ->
-                            raf.seek(offset)
-                            var fileRemaining = fileLength - offset
-                            var lastTime = System.currentTimeMillis()
-                            var bytesBatch = 0L
+                    // إذا كان الملف مكتملاً مسبقاً لدى المستلم
+                    if (offset >= fileLength) {
+                        totalBytesTransferred += fileLength
+                        currentFileIndex++
+                        inStream.readByte() // تأكيد المستلم
+                        continue
+                    }
 
-                            while (fileRemaining > 0 && !isCancelled && !isPaused) {
-                                val toRead = Math.min(buffer.size.toLong(), fileRemaining).toInt()
-                                val read = raf.read(buffer, 0, toRead)
-                                if (read == -1) break
+                    totalBytesTransferred += offset
 
-                                out.write(buffer, 0, read)
-                                fileRemaining -= read
-                                bytesBatch += read
+                    RandomAccessFile(file, "r").use { raf ->
+                        raf.seek(offset)
+                        var fileRemaining = fileLength - offset
+                        var lastTime = System.currentTimeMillis()
+                        var bytesBatch = 0L
 
-                                val now = System.currentTimeMillis()
-                                val diff = now - lastTime
-                                if (diff >= 500) {
-                                    val speed = (bytesBatch * 1000L) / diff
-                                    lastTime = now
-                                    bytesBatch = 0L
-                                    onProgress(
-                                        TransferStats(
-                                            state = TransferState.RUNNING,
-                                            currentFileName = file.name,
-                                            filesTransferred = currentFileIndex,
-                                            totalFiles = allFiles.size,
-                                            speedBytesPerSec = speed
-                                        )
+                        while (fileRemaining > 0 && !isCancelled && !isPaused) {
+                            val toRead = Math.min(buffer.size.toLong(), fileRemaining).toInt()
+                            val read = raf.read(buffer, 0, toRead)
+                            if (read == -1) break
+
+                            out.write(buffer, 0, read)
+                            fileRemaining -= read
+                            bytesBatch += read
+                            totalBytesTransferred += read
+
+                            val now = System.currentTimeMillis()
+                            val diff = now - lastTime
+                            if (diff >= 300) {
+                                val speed = (bytesBatch * 1000L) / diff
+                                lastTime = now
+                                bytesBatch = 0L
+                                onProgress(
+                                    TransferStats(
+                                        state = TransferState.RUNNING,
+                                        currentFileName = file.name,
+                                        filesTransferred = currentFileIndex,
+                                        totalFiles = allFiles.size,
+                                        bytesTransferred = totalBytesTransferred,
+                                        totalBytes = totalBytes,
+                                        speedBytesPerSec = speed
                                     )
-                                }
+                                )
                             }
-                            out.flush()
                         }
+                        out.flush()
                     }
 
                     if (isPaused || isCancelled) continue
@@ -141,10 +164,15 @@ object SenderEngine {
                 onProgress(
                     TransferStats(
                         state = TransferState.RECONNECTING,
-                        errorMessage = "تعذر الاتصال (${e.localizedMessage}). إعادة المحاولة تلقائياً..."
+                        currentFileName = "انقطع الاتصال، جاري المحاولة...",
+                        filesTransferred = currentFileIndex,
+                        totalFiles = allFiles.size,
+                        bytesTransferred = totalBytesTransferred,
+                        totalBytes = totalBytes,
+                        errorMessage = e.localizedMessage
                     )
                 )
-                delay(3000)
+                delay(2000)
             } finally {
                 try { socket?.close() } catch (_: Exception) {}
             }
@@ -153,7 +181,16 @@ object SenderEngine {
         if (isCancelled) {
             onProgress(TransferStats(state = TransferState.IDLE, errorMessage = "تم إلغاء النقل"))
         } else {
-            onProgress(TransferStats(state = TransferState.COMPLETED, totalFiles = allFiles.size, filesTransferred = allFiles.size))
+            onProgress(
+                TransferStats(
+                    state = TransferState.COMPLETED,
+                    currentFileName = "اكتمل النقل بنجاح!",
+                    totalFiles = allFiles.size,
+                    filesTransferred = allFiles.size,
+                    totalBytes = totalBytes,
+                    bytesTransferred = totalBytes
+                )
+            )
         }
     }
 }
