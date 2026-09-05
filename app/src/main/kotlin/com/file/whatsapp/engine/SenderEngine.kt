@@ -14,9 +14,34 @@ object SenderEngine {
     private const val BUFFER_SIZE = 128 * 1024
     private const val PORT = 8998
     private const val HANDSHAKE_MAGIC = "WA_TRANSFER_SYNC_OK"
+    private const val PING_SIGNAL = "PING_CHECK"
+    private const val PONG_RESPONSE = "PONG_READY"
 
     @Volatile var isPaused = false
     @Volatile var isCancelled = false
+
+    /**
+     * فحص اتصال مسبق وسريع للتحقق من أن جهاز المستلم متصل والمنفذ جاهز
+     */
+    suspend fun pingReceiver(targetIp: String): Boolean = withContext(Dispatchers.IO) {
+        if (targetIp.isBlank() || targetIp == "127.0.0.1") return@withContext false
+        try {
+            Socket().use { socket ->
+                socket.soTimeout = 3000
+                socket.connect(InetSocketAddress(targetIp.trim(), PORT), 3000)
+                val out = DataOutputStream(socket.getOutputStream())
+                val inStream = DataInputStream(socket.getInputStream())
+
+                out.writeUTF(PING_SIGNAL)
+                out.flush()
+
+                val response = inStream.readUTF()
+                response == PONG_RESPONSE
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     suspend fun sendDirectory(
         sourceDir: File,
@@ -26,8 +51,32 @@ object SenderEngine {
         isPaused = false
         isCancelled = false
 
+        // التحقق من وجود المجلد
+        if (!sourceDir.exists() || !sourceDir.isDirectory) {
+            onProgress(
+                TransferStats(
+                    state = TransferState.ERROR,
+                    errorMessage = "مجلد واتساب المصدر غير موجود: ${sourceDir.absolutePath}"
+                )
+            )
+            return@withContext
+        }
+
+        // قراءة الملفات شجرياً
         val allFiles = sourceDir.walkTopDown().filter { it.isFile }.toList()
         val totalBytes = allFiles.sumOf { it.length() }
+
+        // التحقق الحاسم: منع النجاح الوهمي في حال كان المجلد فارغاً
+        if (allFiles.isEmpty() || totalBytes == 0L) {
+            onProgress(
+                TransferStats(
+                    state = TransferState.ERROR,
+                    errorMessage = "لم يتم العثور على أي ملفات أو بيانات داخل المسار: ${sourceDir.absolutePath}"
+                )
+            )
+            return@withContext
+        }
+
         var currentFileIndex = 0
         var totalBytesTransferred = 0L
 
@@ -35,12 +84,18 @@ object SenderEngine {
             var socket: Socket? = null
             try {
                 val ip = targetIpProvider().trim()
+                if (ip.isBlank()) {
+                    throw IOException("عنوان IP للمستلم غير محدد أو غير صالح")
+                }
+
                 onProgress(
                     TransferStats(
                         state = TransferState.CONNECTING,
                         currentFileName = "جاري التحقق والاتصال بـ: $ip...",
                         totalFiles = allFiles.size,
-                        totalBytes = totalBytes
+                        totalBytes = totalBytes,
+                        filesTransferred = currentFileIndex,
+                        bytesTransferred = totalBytesTransferred
                     )
                 )
 
@@ -59,20 +114,22 @@ object SenderEngine {
 
                 val response = inStream.readUTF()
                 if (response != HANDSHAKE_MAGIC) {
-                    throw IOException("فشلت مصافحة الاتصال: استجابة غير مطابقة")
+                    throw IOException("فشلت مصافحة الاتصال: استجابة غير متطابقة من المستلم")
                 }
 
                 onProgress(
                     TransferStats(
                         state = TransferState.CONNECTED,
-                        currentFileName = "تم الاتصال! بدء إرسال البيانات...",
+                        currentFileName = "تم الاتصال بنجاح! بدء تدفق البيانات...",
                         totalFiles = allFiles.size,
-                        totalBytes = totalBytes
+                        totalBytes = totalBytes,
+                        filesTransferred = currentFileIndex,
+                        bytesTransferred = totalBytesTransferred
                     )
                 )
-                delay(400)
+                delay(300)
 
-                // إرسال الرأس
+                // إرسال رأس البيانات الإجمالي
                 out.writeInt(allFiles.size)
                 out.writeLong(totalBytes)
                 out.flush()
@@ -108,7 +165,7 @@ object SenderEngine {
                     if (offset >= fileLength) {
                         totalBytesTransferred += fileLength
                         currentFileIndex++
-                        inStream.readByte() // تأكيد المستلم
+                        inStream.readByte() // مزامنة ACK
                         continue
                     }
 
@@ -164,7 +221,7 @@ object SenderEngine {
                 onProgress(
                     TransferStats(
                         state = TransferState.RECONNECTING,
-                        currentFileName = "انقطع الاتصال، جاري المحاولة...",
+                        currentFileName = "تعذر الاتصال بالمستلم، جاري إعادة المحاولة...",
                         filesTransferred = currentFileIndex,
                         totalFiles = allFiles.size,
                         bytesTransferred = totalBytesTransferred,
@@ -179,8 +236,13 @@ object SenderEngine {
         }
 
         if (isCancelled) {
-            onProgress(TransferStats(state = TransferState.IDLE, errorMessage = "تم إلغاء النقل"))
-        } else {
+            onProgress(
+                TransferStats(
+                    state = TransferState.IDLE,
+                    errorMessage = "تم إلغاء النقل بواسطة المستخدم"
+                )
+            )
+        } else if (currentFileIndex >= allFiles.size) {
             onProgress(
                 TransferStats(
                     state = TransferState.COMPLETED,
